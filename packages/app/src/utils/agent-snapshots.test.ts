@@ -17,6 +17,7 @@ function createSnapshot(
     updatedAt: input.updatedAt ?? "2026-04-20T00:01:00.000Z",
     lastUserMessageAt: input.lastUserMessageAt ?? null,
     status: input.status ?? "idle",
+    activeForegroundTurnId: input.activeForegroundTurnId ?? null,
     capabilities: input.capabilities ?? {
       supportsStreaming: true,
       supportsSessionPersistence: true,
@@ -70,5 +71,16 @@ describe("normalizeAgentSnapshot", () => {
     expect(missing.parentAgentId).toBeNull();
     expect(empty.parentAgentId).toBeNull();
     expect(nonString.parentAgentId).toBeNull();
+  });
+
+  it("preserves the active foreground turn while normalizing legacy snapshots to null", () => {
+    const active = normalizeAgentSnapshot(
+      createSnapshot({ activeForegroundTurnId: "turn-current", status: "running" }),
+      "server-1",
+    );
+    const legacy = normalizeAgentSnapshot(createSnapshot(), "server-1");
+
+    expect(active.activeForegroundTurnId).toBe("turn-current");
+    expect(legacy.activeForegroundTurnId).toBeNull();
   });
 });

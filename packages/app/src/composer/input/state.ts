@@ -2,7 +2,25 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { MessagePayload } from "@/composer/types";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 
-export type SendBehavior = "interrupt" | "queue";
+export type SendBehavior = "interrupt" | "queue" | "steer";
+
+export function resolveSelectedSendBehavior(input: {
+  current: SendBehavior;
+  defaultSendBehavior: "interrupt" | "queue";
+  canSteer: boolean;
+  wasSteerAvailable: boolean;
+}): SendBehavior {
+  if (!input.canSteer) return input.defaultSendBehavior;
+  return input.wasSteerAvailable ? input.current : "steer";
+}
+
+export function resolveSendErrorAfterInputChange(
+  currentError: string | null,
+  currentValue: string,
+  nextValue: string,
+): string | null {
+  return nextValue === currentValue ? currentError : null;
+}
 
 interface ComposerSurfaceState {
   opacity: 0 | 1;
@@ -39,11 +57,15 @@ interface StopRealtimeVoiceContext {
 }
 
 interface SendActionContext {
-  defaultSendBehavior: SendBehavior;
+  selectedSendBehavior: SendBehavior;
   isAgentRunning: boolean;
+  canSteer: boolean;
+  hasAttachments: boolean;
   onQueue: ((payload: MessagePayload) => void) | undefined;
+  onSteer: ((payload: MessagePayload) => Promise<void>) | undefined;
   handleSendMessage: () => void;
   handleQueueMessage: () => void;
+  handleSteerMessage: () => void;
 }
 
 interface MessageInputKeyboardActions {
@@ -72,7 +94,13 @@ export function computeCanStartDictation(input: {
 }
 
 export function runDefaultSendAction(ctx: SendActionContext): void {
-  if (ctx.defaultSendBehavior === "queue" && ctx.isAgentRunning && ctx.onQueue) {
+  if (ctx.selectedSendBehavior === "steer") {
+    if (ctx.isAgentRunning && ctx.canSteer && !ctx.hasAttachments && ctx.onSteer) {
+      ctx.handleSteerMessage();
+    }
+    return;
+  }
+  if (ctx.selectedSendBehavior === "queue" && ctx.isAgentRunning && ctx.onQueue) {
     ctx.handleQueueMessage();
     return;
   }
@@ -80,7 +108,7 @@ export function runDefaultSendAction(ctx: SendActionContext): void {
 }
 
 export function runAlternateSendAction(ctx: SendActionContext): void {
-  if (ctx.defaultSendBehavior === "queue") {
+  if (ctx.selectedSendBehavior === "queue") {
     ctx.handleSendMessage();
     return;
   }

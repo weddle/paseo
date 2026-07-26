@@ -179,6 +179,67 @@ test("legacy cancel_agent_request reports refusal through the activity log", asy
   ]);
 });
 
+test("agent.message.steer.request returns the exact correlated dispatch result", async () => {
+  const agentId = "11111111-1111-4111-8111-111111111111";
+  const messages: SessionOutboundMessage[] = [];
+  const steerAgent = vi.fn().mockResolvedValue(undefined);
+  const session = createSessionForTest({ messages, agentManager: { steerAgent } });
+
+  await session.handleMessage({
+    type: "agent.message.steer.request",
+    requestId: "steer-request",
+    agentId,
+    expectedTurnId: "turn-1",
+    prompt: "Focus on the failing test.",
+  });
+
+  expect(steerAgent).toHaveBeenCalledWith(agentId, "Focus on the failing test.", "turn-1");
+  expect(messages).toEqual([
+    {
+      type: "agent.message.steer.response",
+      payload: {
+        requestId: "steer-request",
+        agentId,
+        ok: true,
+        error: null,
+      },
+    },
+  ]);
+});
+
+test("agent.message.steer.request preserves manager eligibility errors", async () => {
+  const agentId = "11111111-1111-4111-8111-111111111111";
+  const messages: SessionOutboundMessage[] = [];
+  const session = createSessionForTest({
+    messages,
+    agentManager: {
+      steerAgent: vi
+        .fn()
+        .mockRejectedValue(new Error(`Agent '${agentId}' has no active foreground turn to steer`)),
+    },
+  });
+
+  await session.handleMessage({
+    type: "agent.message.steer.request",
+    requestId: "steer-idle",
+    agentId,
+    expectedTurnId: "turn-1",
+    prompt: "Focus on the failing test.",
+  });
+
+  expect(messages).toEqual([
+    {
+      type: "agent.message.steer.response",
+      payload: {
+        requestId: "steer-idle",
+        agentId,
+        ok: false,
+        error: `Agent '${agentId}' has no active foreground turn to steer`,
+      },
+    },
+  ]);
+});
+
 const checkoutGitMocks = vi.hoisted(() => ({
   checkoutResolvedBranch: vi.fn(),
   commitChanges: vi.fn(),

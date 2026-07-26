@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import type {
   AgentCapabilityFlags,
-  AgentPromptInput,
   AgentSession,
   AgentStreamEvent,
   AgentRuntimeInfo,
@@ -26,6 +25,7 @@ const OPTIONAL_AGENT_SESSION_METHOD_NAMES = [
   "revertFiles",
   "revertBoth",
   "tryHandleOutOfBand",
+  "steer",
 ] as const satisfies readonly OptionalAgentSessionMethodName[];
 
 type MissingOptionalAgentSessionMethod = Exclude<
@@ -118,6 +118,9 @@ class FakeSession implements AgentSession {
     this.recordedCalls.push("interrupt");
   }
 
+  async steer(_prompt: string) {
+    this.recordedCalls.push("steer");
+  }
   async close() {
     this.recordedCalls.push("close");
   }
@@ -173,6 +176,7 @@ describe("wrapSessionProvider", () => {
     const wrapped = wrapSessionProvider("custom-claude", session);
 
     await wrapped.listCommands?.();
+    await wrapped.steer?.("redirect to the focused test");
     await wrapped.setModel?.("sonnet");
     await wrapped.setThinkingOption?.("high");
     await wrapped.setFeature?.("feature-1", true);
@@ -184,6 +188,7 @@ describe("wrapSessionProvider", () => {
 
     expect(session.recordedCalls).toEqual([
       "listCommands",
+      "steer",
       "setModel",
       "setThinkingOption",
       "setFeature",

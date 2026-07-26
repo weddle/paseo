@@ -102,6 +102,8 @@ export interface Agent {
   lastUserMessageAt: Date | null;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
+  /** The foreground turn currently owned by the daemon, if any. */
+  activeForegroundTurnId?: string | null;
   currentModeId: string | null;
   availableModes: AgentMode[];
   pendingPermissions: AgentPermissionRequest[];
@@ -404,7 +406,7 @@ export interface SessionState {
 }
 
 // Global store state
-interface SessionStoreState {
+export interface SessionStoreState {
   sessions: Record<string, SessionState>;
 
   // Agent activity timestamps (top-level, keyed by agentId to prevent cascade rerenders)

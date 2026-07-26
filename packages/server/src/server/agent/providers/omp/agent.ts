@@ -127,6 +127,7 @@ const OMP_CORE_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindConversation: true,
   supportsRewindFiles: false,
   supportsRewindBoth: false,
+  supportsSteering: true,
 };
 
 export interface OmpAgentClientOptions {
@@ -876,6 +877,7 @@ export class OmpAgentSession implements AgentSession {
   private pendingCombinedAskUserResponse: PendingCombinedAskUserResponse | null = null;
   private activeTurnId: string | null = null;
   private activeClientMessageId: string | null = null;
+  private activeClientMessageText: string | null = null;
   private activeAssistantMessageId: string | null = null;
   private activeTurnTerminalAssistantMessage: OmpAgentMessage | null = null;
   private activeTurnStarted = false;
@@ -969,6 +971,7 @@ export class OmpAgentSession implements AgentSession {
     this.live = true;
     this.activeTurnId = turnId;
     this.activeClientMessageId = options?.clientMessageId ?? null;
+    this.activeClientMessageText = payload.text;
     this.activeAssistantMessageId = null;
     this.activeTurnTerminalAssistantMessage = null;
     this.activeTurnStarted = false;
@@ -1002,6 +1005,7 @@ export class OmpAgentSession implements AgentSession {
         }
         this.activeTurnId = null;
         this.activeClientMessageId = null;
+        this.activeClientMessageText = null;
         this.activeTurnStarted = false;
         this.activeTurnHasUserMessage = false;
         this.activeAssistantMessageId = null;
@@ -1137,6 +1141,7 @@ export class OmpAgentSession implements AgentSession {
     if (turnId && this.activeTurnId === turnId) {
       this.activeTurnId = null;
       this.activeClientMessageId = null;
+      this.activeClientMessageText = null;
       this.activeTurnStarted = false;
       this.activeTurnHasUserMessage = false;
       this.activeAssistantMessageId = null;
@@ -1149,6 +1154,14 @@ export class OmpAgentSession implements AgentSession {
         turnId,
       });
     }
+  }
+
+  async steer(prompt: string): Promise<void> {
+    if (!this.activeTurnId) {
+      throw new Error("OMP has no active turn to steer");
+    }
+    const payload = convertPromptInput(prompt, { model: this.state.model });
+    this.runtimeSession.steer(payload.text, payload.images);
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {
@@ -1240,7 +1253,7 @@ export class OmpAgentSession implements AgentSession {
       return {
         run: async () => {
           if (commandName === "steer") {
-            this.runtimeSession.steer(message);
+            await this.steer(message);
           } else {
             this.runtimeSession.followUp(message);
           }
@@ -1794,6 +1807,7 @@ export class OmpAgentSession implements AgentSession {
     const turnId = this.activeTurnId;
     this.activeTurnId = null;
     this.activeClientMessageId = null;
+    this.activeClientMessageText = null;
     this.activeTurnStarted = false;
     this.activeTurnHasUserMessage = false;
     this.activeTurnTerminalAssistantMessage = null;
@@ -2050,7 +2064,15 @@ export class OmpAgentSession implements AgentSession {
     }
     const nativeMessage = event.message as OmpAgentMessage & { id?: unknown; entryId?: unknown };
     const messageId = readNativeMessageId(nativeMessage);
-    const clientMessageId = this.activeClientMessageId;
+    if (messageId && this.emittedUserMessageIds.has(messageId)) {
+      return;
+    }
+    const clientMessageId =
+      this.activeClientMessageText === text ? this.activeClientMessageId : null;
+    if (clientMessageId) {
+      this.activeClientMessageId = null;
+      this.activeClientMessageText = null;
+    }
     const emitUserMessage = (resolvedMessageId?: string): void => {
       if (resolvedMessageId) {
         // OMP re-emits user message_end frames for entries it has already
@@ -2080,7 +2102,11 @@ export class OmpAgentSession implements AgentSession {
     void this.runtimeSession
       .getBranchMessages()
       .then((messages) =>
-        emitUserMessage(messages.toReversed().find((message) => message.text === text)?.entryId),
+        emitUserMessage(
+          messages.find(
+            (message) => message.text === text && !this.emittedUserMessageIds.has(message.entryId),
+          )?.entryId,
+        ),
       )
       .catch((error: unknown) => {
         this.logger.debug(
@@ -2135,6 +2161,7 @@ export class OmpAgentSession implements AgentSession {
   private completeTurn(turnId: string | undefined, messages: OmpAgentMessage[]): void {
     this.activeTurnId = null;
     this.activeClientMessageId = null;
+    this.activeClientMessageText = null;
     this.activeAssistantMessageId = null;
     this.activeTurnTerminalAssistantMessage = null;
     this.activeTurnStarted = false;

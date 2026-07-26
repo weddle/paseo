@@ -8,6 +8,7 @@ import type {
   AgentPersistenceHandle,
   AgentPermissionResponse,
   AgentSessionConfig,
+  AgentRunOptions,
   AgentStreamEvent,
   AgentTimelineItem,
 } from "../../../agent-sdk-types.js";
@@ -435,6 +436,10 @@ export class OmpHarness {
     return await this.requireSession().setMode(modeId);
   }
 
+  async setModel(modelId: string): Promise<void> {
+    await this.requireSession().setModel(modelId);
+  }
+
   async rewind(messageId: string, restoredPrompt: string): Promise<void> {
     this.omp.latestSession().branchResponse = { text: restoredPrompt };
     await this.requireSession().revertConversation({ messageId });
@@ -449,10 +454,14 @@ export class OmpHarness {
     await this.requireSession().interrupt();
   }
 
-  async requireStartTurn(message: string): Promise<void> {
+  async requireStartTurn(message: string, options?: AgentRunOptions): Promise<void> {
     const promptStarted = this.omp.latestSession().nextPrompt();
-    await this.requireSession().startTurn(message);
+    await this.requireSession().startTurn(message, options);
     await promptStarted;
+  }
+
+  async steer(prompt: string): Promise<void> {
+    await this.requireSession().steer(prompt);
   }
 
   async interrupt(): Promise<void> {

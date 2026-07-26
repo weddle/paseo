@@ -579,6 +579,7 @@ export class AgentManager {
   private readonly agentsAwaitingInitialSnapshotPersist = new Set<string>();
   private readonly sessionEventTails = new Map<string, Promise<void>>();
   private readonly runs = new AgentRunState();
+  private readonly foregroundTurnCancellations = new Map<string, number>();
   private readonly subscribers = new Set<SubscriptionRecord>();
   private readonly idFactory: () => string;
   private readonly registry?: AgentStorage;
@@ -1957,6 +1958,47 @@ export class AgentManager {
     return true;
   }
 
+  async steerAgent(agentId: string, prompt: string, expectedTurnId: string): Promise<void> {
+    const agent = this.requireAgent(agentId);
+    if (agent.session === null) {
+      throw new Error(`Agent '${agent.id}' is not loaded`);
+    }
+    const session = agent.session;
+    if (!session.capabilities.supportsSteering || !session.steer) {
+      throw new Error(`Agent '${agent.id}' does not support steering`);
+    }
+    if (prompt.trim().length === 0) {
+      throw new Error("Steering accepts a non-empty text prompt");
+    }
+    if ((this.foregroundTurnCancellations.get(agent.id) ?? 0) > 0) {
+      throw new Error(
+        `Agent '${agent.id}' is canceling its foreground turn; retry Steer after it settles, or use Queue/Interrupt`,
+      );
+    }
+    if (agent.pendingReplacement) {
+      throw new Error(
+        `Agent '${agent.id}' is replacing its foreground turn; retry Steer after it settles, or use Queue/Interrupt`,
+      );
+    }
+
+    const activeTurnId = agent.activeForegroundTurnId;
+    const pendingRun = this.runs.getPendingRun(agent.id);
+    if (
+      activeTurnId === null ||
+      pendingRun === null ||
+      !pendingRun.started ||
+      pendingRun.settled ||
+      pendingRun.turnId !== activeTurnId
+    ) {
+      throw new Error(`Agent '${agent.id}' has no active foreground turn to steer`);
+    }
+    if (activeTurnId !== expectedTurnId) {
+      throw new Error(`Agent '${agent.id}' is no longer running expected turn '${expectedTurnId}'`);
+    }
+
+    await session.steer(prompt);
+  }
+
   async appendTimelineItem(agentId: string, item: AgentTimelineItem): Promise<void> {
     const agent = this.requireAgent(agentId);
     item = limitAgentTimelineItemContent(item);
@@ -2315,48 +2357,67 @@ export class AgentManager {
       return { status: "not_running" };
     }
 
-    const interruptAcknowledged = await this.interruptSession(agent.session, agentId);
-    const settlement = await this.waitWithTimeout({
-      operation: run.settledPromise,
-      timeoutMs: interruptAcknowledged
-        ? INTERRUPT_SESSION_TIMEOUT_MS
-        : this.rescueTimeouts.interruptSessionMs,
-    });
-
-    if (!interruptAcknowledged) {
-      return { status: settlement === "completed" ? "settled" : "refused" };
-    }
-
-    if (settlement === "timed_out" && run.turnId) {
-      this.logger.warn(
-        { agentId, turnId: run.turnId, kind: run.kind },
-        "cancelAgentRun: acknowledged turn still active after timeout, force-canceling",
+    const guardingForegroundTurn = run.kind === "foreground";
+    if (guardingForegroundTurn) {
+      this.foregroundTurnCancellations.set(
+        agentId,
+        (this.foregroundTurnCancellations.get(agentId) ?? 0) + 1,
       );
-      await this.dispatchSessionEvent(agent, {
-        type: "turn_canceled",
-        provider: agent.provider,
-        reason: "interrupted",
-        turnId: run.turnId,
-      });
-      await run.settledPromise;
-    } else if (settlement === "timed_out" && run.kind === "autonomous") {
-      this.logger.warn(
-        { agentId, kind: run.kind },
-        "cancelAgentRun: acknowledged turn still active after timeout, force-canceling",
-      );
-      await this.dispatchSessionEvent(agent, {
-        type: "turn_canceled",
-        provider: agent.provider,
-        reason: "interrupted",
-      });
     }
 
-    if (agent.pendingPermissions.size > 0) {
-      this.resolvePendingPermissionsForAgent(agent, agent.provider, undefined, "Interrupted");
-      this.touchUpdatedAt(agent);
-      this.emitState(agent);
+    try {
+      const interruptAcknowledged = await this.interruptSession(agent.session, agentId);
+      const settlement = await this.waitWithTimeout({
+        operation: run.settledPromise,
+        timeoutMs: interruptAcknowledged
+          ? INTERRUPT_SESSION_TIMEOUT_MS
+          : this.rescueTimeouts.interruptSessionMs,
+      });
+
+      if (!interruptAcknowledged) {
+        return { status: settlement === "completed" ? "settled" : "refused" };
+      }
+
+      if (settlement === "timed_out" && run.turnId) {
+        this.logger.warn(
+          { agentId, turnId: run.turnId, kind: run.kind },
+          "cancelAgentRun: acknowledged turn still active after timeout, force-canceling",
+        );
+        await this.dispatchSessionEvent(agent, {
+          type: "turn_canceled",
+          provider: agent.provider,
+          reason: "interrupted",
+          turnId: run.turnId,
+        });
+        await run.settledPromise;
+      } else if (settlement === "timed_out" && run.kind === "autonomous") {
+        this.logger.warn(
+          { agentId, kind: run.kind },
+          "cancelAgentRun: acknowledged turn still active after timeout, force-canceling",
+        );
+        await this.dispatchSessionEvent(agent, {
+          type: "turn_canceled",
+          provider: agent.provider,
+          reason: "interrupted",
+        });
+      }
+
+      if (agent.pendingPermissions.size > 0) {
+        this.resolvePendingPermissionsForAgent(agent, agent.provider, undefined, "Interrupted");
+        this.touchUpdatedAt(agent);
+        this.emitState(agent);
+      }
+      return { status: "settled" };
+    } finally {
+      if (guardingForegroundTurn) {
+        const remaining = (this.foregroundTurnCancellations.get(agentId) ?? 1) - 1;
+        if (remaining > 0) {
+          this.foregroundTurnCancellations.set(agentId, remaining);
+        } else {
+          this.foregroundTurnCancellations.delete(agentId);
+        }
+      }
     }
-    return { status: "settled" };
   }
 
   private async cancelAgentRunBefore(

@@ -66,6 +66,10 @@ export interface ComposerSendClient {
   }>;
 }
 
+export interface ComposerSteerClient {
+  steerAgent: (agentId: string, text: string, expectedTurnId: string) => Promise<void>;
+}
+
 export interface ComposerCancelClient {
   cancelAgent: (agentId: string) => Promise<void> | void;
 }
@@ -198,6 +202,31 @@ export async function dispatchComposerAgentMessage(
       images: imagesData ?? [],
       attachments: wirePayload.attachments,
     });
+  } catch (error) {
+    rollbackOptimisticMessage();
+    throw error;
+  }
+}
+
+export async function dispatchComposerSteerMessage(input: {
+  client: ComposerSteerClient;
+  agentId: string;
+  expectedTurnId: string;
+  text: string;
+  stream: AgentStreamWriter;
+}): Promise<void> {
+  const userMessage = buildOptimisticUserMessage({
+    id: generateMessageId(),
+    text: input.text,
+    timestamp: new Date(),
+  });
+  const rollbackOptimisticMessage = appendUserMessageToStream(
+    input.agentId,
+    userMessage,
+    input.stream,
+  );
+  try {
+    await input.client.steerAgent(input.agentId, input.text, input.expectedTurnId);
   } catch (error) {
     rollbackOptimisticMessage();
     throw error;

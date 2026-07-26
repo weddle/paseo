@@ -59,6 +59,7 @@ import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
 import { isWeb } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useComposerHeightMirror } from "./height-mirror";
+import { SendBehaviorControl, type SendBehaviorLabels } from "./send-behavior-control";
 import {
   resolveSendTooltipLabel,
   resolveSubmitAccessibilityLabel,
@@ -68,10 +69,12 @@ import {
 import {
   computeCanStartDictation,
   resolveComposerSurfacePresentation,
+  resolveSelectedSendBehavior,
   runAlternateSendAction,
   runDefaultSendAction,
   runMessageInputKeyboardAction,
   stopRealtimeVoice,
+  type SendBehavior,
 } from "./state";
 
 const DEFAULT_SEND_KEYS: ShortcutKey[][] = [["Enter"]];
@@ -124,13 +127,16 @@ export interface MessageInputProps {
   rightContent?: React.ReactNode;
   voiceServerId?: string;
   voiceAgentId?: string;
-  /** When true and there's sendable content, calls onQueue instead of onSubmit */
+  /** Whether the active agent is currently running. */
   isAgentRunning?: boolean;
-  /** Controls what the default send action (Enter, send button, dictation) does
-   *  when the agent is running. "interrupt" sends immediately, "queue" queues. */
+  /** True when a running agent supports same-turn steering. */
+  canSteer?: boolean;
+  /** Controls the normal non-steering send preference. */
   defaultSendBehavior?: "interrupt" | "queue";
-  /** Callback for queue button when agent is running */
+  /** Callback for the local Paseo queue when the agent is running. */
   onQueue?: (payload: MessagePayload) => void;
+  /** Delivers text to the currently running turn without replacing it. */
+  onSteer?: (payload: MessagePayload) => Promise<void>;
   /** Optional handler used when submit button is in loading state. */
   onSubmitLoadingPress?: () => void;
   /** Intercept key press events before default handling. Return true to prevent default. */
@@ -458,9 +464,8 @@ interface DesktopKeyPressContext {
   submitOnEnter: boolean;
   isAgentRunning: boolean;
   onQueue: ((payload: MessagePayload) => void) | undefined;
-  isSubmitDisabled: boolean;
-  isSubmitLoading: boolean;
-  disabled: boolean;
+  isDefaultSendDisabled: boolean;
+  isAlternateSendDisabled: boolean;
   handleAlternateSendAction: () => void;
   handleDefaultSendAction: () => void;
 }
@@ -486,13 +491,13 @@ function handleDesktopKeyPressImpl(
   if (shiftKey) return;
 
   if ((metaKey || ctrlKey) && ctx.isAgentRunning && ctx.onQueue) {
-    if (ctx.isSubmitDisabled || ctx.isSubmitLoading || ctx.disabled) return;
+    if (ctx.isAlternateSendDisabled) return;
     event.preventDefault();
     ctx.handleAlternateSendAction();
     return;
   }
 
-  if (ctx.isSubmitDisabled || ctx.isSubmitLoading || ctx.disabled) return;
+  if (ctx.isDefaultSendDisabled) return;
   event.preventDefault();
   ctx.handleDefaultSendAction();
 }
@@ -780,9 +785,12 @@ function SendButtonTooltip({
 
 interface DictationTranscriptContext {
   value: string;
-  defaultSendBehavior: "interrupt" | "queue";
+  selectedSendBehavior: SendBehavior;
   isAgentRunning: boolean;
+  canSteer: boolean;
+  hasSteerBlockingAttachment: boolean;
   onQueue: ((payload: MessagePayload) => void) | undefined;
+  onSteer: ((payload: MessagePayload) => Promise<void>) | undefined;
   onSubmit: (payload: MessagePayload) => void;
   onChangeText: (text: string) => void;
   attachments: ComposerAttachment[];
@@ -800,7 +808,15 @@ function applyDictationTranscript(text: string, ctx: DictationTranscriptContext)
     return;
   }
 
-  if (ctx.defaultSendBehavior === "queue" && ctx.isAgentRunning && ctx.onQueue) {
+  if (ctx.selectedSendBehavior === "steer") {
+    ctx.onChangeText(nextValue);
+    if (ctx.isAgentRunning && ctx.canSteer && !ctx.hasSteerBlockingAttachment && ctx.onSteer) {
+      void ctx.onSteer({ text: nextValue.trim(), attachments: [], cwd: ctx.cwd });
+    }
+    return;
+  }
+
+  if (ctx.selectedSendBehavior === "queue" && ctx.isAgentRunning && ctx.onQueue) {
     ctx.onQueue({ text: nextValue, attachments: ctx.attachments, cwd: ctx.cwd });
     ctx.onChangeText("");
     return;
@@ -946,6 +962,21 @@ function queueMessageImpl(ctx: QueueMessageContext): void {
   ctx.onMinimizeHeight();
 }
 
+interface SteerMessageContext {
+  value: string;
+  cwd: string;
+  canSteer: boolean;
+  hasSteerBlockingAttachment: boolean;
+  onSteer: ((payload: MessagePayload) => Promise<void>) | undefined;
+}
+
+function steerMessageImpl(ctx: SteerMessageContext): void {
+  if (!ctx.canSteer || !ctx.onSteer || ctx.hasSteerBlockingAttachment) return;
+  const trimmed = ctx.value.trim();
+  if (!trimmed) return;
+  void ctx.onSteer({ text: trimmed, attachments: [], cwd: ctx.cwd });
+}
+
 function computeIsRealtimeVoiceForAgent(
   voice: { isVoiceModeForAgent: (serverId: string, agentId: string) => boolean } | null | undefined,
   voiceServerId: string | undefined,
@@ -1036,23 +1067,30 @@ interface SendButtonStateInput {
   isSubmitDisabled: boolean;
   isSubmitLoading: boolean;
   onSubmitLoadingPress: (() => void) | undefined;
-  defaultSendBehavior: "interrupt" | "queue";
+  selectedSendBehavior: SendBehavior;
   isAgentRunning: boolean;
+  canSteer: boolean;
+  hasAttachments: boolean;
 }
 
 interface SendButtonStateOutput {
   canPressLoadingButton: boolean;
   isSendButtonDisabled: boolean;
-  defaultActionQueues: boolean;
+  isAlternateSendDisabled: boolean;
 }
 
 function computeSendButtonState(input: SendButtonStateInput): SendButtonStateOutput {
   const canPressLoadingButton =
     input.isSubmitLoading && typeof input.onSubmitLoadingPress === "function";
-  const isSendButtonDisabled =
+  const isAlternateSendDisabled =
     input.disabled || (!canPressLoadingButton && (input.isSubmitDisabled || input.isSubmitLoading));
-  const defaultActionQueues = input.defaultSendBehavior === "queue" && input.isAgentRunning;
-  return { canPressLoadingButton, isSendButtonDisabled, defaultActionQueues };
+  const isSteerUnavailable =
+    input.selectedSendBehavior === "steer" && (!input.canSteer || input.hasAttachments);
+  return {
+    canPressLoadingButton,
+    isSendButtonDisabled: isAlternateSendDisabled || isSteerUnavailable,
+    isAlternateSendDisabled,
+  };
 }
 
 interface ResolvedMessageInputProps {
@@ -1085,8 +1123,10 @@ interface ResolvedMessageInputProps {
   voiceServerId: string | undefined;
   voiceAgentId: string | undefined;
   isAgentRunning: boolean;
+  canSteer: boolean;
   defaultSendBehavior: "interrupt" | "queue";
   onQueue: ((payload: MessagePayload) => void) | undefined;
+  onSteer: ((payload: MessagePayload) => Promise<void>) | undefined;
   onSubmitLoadingPress: (() => void) | undefined;
   onKeyPressCallback: ((event: { key: string; preventDefault: () => void }) => boolean) | undefined;
   onSelectionChangeCallback: ((selection: { start: number; end: number }) => void) | undefined;
@@ -1127,8 +1167,10 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
     voiceServerId: props.voiceServerId,
     voiceAgentId: props.voiceAgentId,
     isAgentRunning: props.isAgentRunning ?? false,
+    canSteer: props.canSteer ?? false,
     defaultSendBehavior: props.defaultSendBehavior ?? "interrupt",
     onQueue: props.onQueue,
+    onSteer: props.onSteer,
     onSubmitLoadingPress: props.onSubmitLoadingPress,
     onKeyPressCallback: props.onKeyPress,
     onSelectionChangeCallback: props.onSelectionChange,
@@ -1143,6 +1185,96 @@ function extractErrorMessage(error: unknown): string | null {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return null;
+}
+
+interface SteerBehaviorInput {
+  canSteer: boolean;
+  isAgentRunning: boolean;
+  onSteer: ((payload: MessagePayload) => Promise<void>) | undefined;
+  attachments: ComposerAttachment[];
+  hasExternalContent: boolean;
+  defaultSendBehavior: "interrupt" | "queue";
+}
+
+function useSteerBehavior(input: SteerBehaviorInput) {
+  const canUseSteer = input.canSteer && input.isAgentRunning && typeof input.onSteer === "function";
+  const hasSteerBlockingAttachment = input.attachments.length > 0 || input.hasExternalContent;
+  const [selectedSendBehavior, setSelectedSendBehavior] = useState<SendBehavior>(() =>
+    canUseSteer ? "steer" : input.defaultSendBehavior,
+  );
+  const wasSteerAvailableRef = useRef(canUseSteer);
+
+  useEffect(() => {
+    setSelectedSendBehavior((current) =>
+      resolveSelectedSendBehavior({
+        current,
+        defaultSendBehavior: input.defaultSendBehavior,
+        canSteer: canUseSteer,
+        wasSteerAvailable: wasSteerAvailableRef.current,
+      }),
+    );
+    wasSteerAvailableRef.current = canUseSteer;
+  }, [canUseSteer, input.defaultSendBehavior]);
+
+  const handleSendBehaviorSelect = useCallback(
+    (behavior: SendBehavior) => {
+      if (behavior === "steer" && (!canUseSteer || hasSteerBlockingAttachment)) return;
+      setSelectedSendBehavior(behavior);
+    },
+    [canUseSteer, hasSteerBlockingAttachment],
+  );
+  const shouldShowSteerAttachmentHint =
+    selectedSendBehavior === "steer" && hasSteerBlockingAttachment;
+
+  return {
+    canUseSteer,
+    hasSteerBlockingAttachment,
+    selectedSendBehavior,
+    handleSendBehaviorSelect,
+    shouldShowSteerAttachmentHint,
+  };
+}
+
+function SteerAttachmentHint({ shouldShow, label }: { shouldShow: boolean; label: string }) {
+  if (!shouldShow) return null;
+  return (
+    <Text
+      testID="message-input-steer-attachment-hint"
+      accessibilityLiveRegion="polite"
+      style={styles.steerAttachmentHint}
+    >
+      {label}
+    </Text>
+  );
+}
+
+function ComposerSendBehaviorControl({
+  canSteer,
+  hasAttachments,
+  selectedBehavior,
+  disabled,
+  isSubmitLoading,
+  labels,
+  onSelect,
+}: {
+  canSteer: boolean;
+  hasAttachments: boolean;
+  selectedBehavior: SendBehavior;
+  disabled: boolean;
+  isSubmitLoading: boolean;
+  labels: SendBehaviorLabels;
+  onSelect: (behavior: SendBehavior) => void;
+}) {
+  return (
+    <SendBehaviorControl
+      canSteer={canSteer}
+      hasAttachments={hasAttachments}
+      selectedBehavior={selectedBehavior}
+      disabled={disabled || isSubmitLoading}
+      labels={labels}
+      onSelect={onSelect}
+    />
+  );
 }
 
 export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
@@ -1177,8 +1309,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       voiceServerId,
       voiceAgentId,
       isAgentRunning,
+      canSteer,
       defaultSendBehavior,
       onQueue,
+      onSteer,
       onSubmitLoadingPress,
       onKeyPressCallback,
       onSelectionChangeCallback,
@@ -1197,6 +1331,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const voiceMuteToggleKeys = useShortcutKeys("voice-mute-toggle");
     const dictationToggleKeys = useShortcutKeys("dictation-toggle");
     const focusInputKeys = useShortcutKeys("focus-message-input");
+    const {
+      canUseSteer,
+      hasSteerBlockingAttachment,
+      selectedSendBehavior,
+      handleSendBehaviorSelect,
+      shouldShowSteerAttachmentHint,
+    } = useSteerBehavior({
+      canSteer,
+      isAgentRunning,
+      onSteer,
+      attachments,
+      hasExternalContent,
+      defaultSendBehavior,
+    });
     const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
     const [isInputFocused, setIsInputFocused] = useState(false);
     const rootRef = useRef<View | null>(null);
@@ -1262,9 +1410,12 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         sendAfterTranscriptRef.current = false;
         applyDictationTranscript(text, {
           value: valueRef.current,
-          defaultSendBehavior,
+          selectedSendBehavior,
           isAgentRunning,
+          canSteer: canUseSteer,
+          hasSteerBlockingAttachment,
           onQueue,
+          onSteer,
           onSubmit,
           onChangeText,
           attachments,
@@ -1272,7 +1423,18 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           autoSend,
         });
       },
-      [onChangeText, onSubmit, onQueue, attachments, cwd, isAgentRunning, defaultSendBehavior],
+      [
+        attachments,
+        canUseSteer,
+        cwd,
+        hasSteerBlockingAttachment,
+        isAgentRunning,
+        onChangeText,
+        onQueue,
+        onSteer,
+        onSubmit,
+        selectedSendBehavior,
+      ],
     );
 
     const handleDictationError = useCallback(
@@ -1488,25 +1650,65 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [attachments, cwd, onQueue, onChangeText, minimizeInputHeight],
     );
 
+    const handleSteerMessage = useCallback(
+      () =>
+        steerMessageImpl({
+          value: valueRef.current,
+          cwd,
+          canSteer: canUseSteer,
+          hasSteerBlockingAttachment,
+          onSteer,
+        }),
+      [canUseSteer, cwd, hasSteerBlockingAttachment, onSteer],
+    );
+
     const handleDefaultSendAction = useCallback(() => {
       runDefaultSendAction({
-        defaultSendBehavior,
+        selectedSendBehavior,
         isAgentRunning,
+        canSteer: canUseSteer,
+        hasAttachments: hasSteerBlockingAttachment,
         onQueue,
+        onSteer,
         handleSendMessage,
         handleQueueMessage,
+        handleSteerMessage,
       });
-    }, [defaultSendBehavior, isAgentRunning, onQueue, handleQueueMessage, handleSendMessage]);
+    }, [
+      canUseSteer,
+      handleQueueMessage,
+      handleSendMessage,
+      handleSteerMessage,
+      hasSteerBlockingAttachment,
+      isAgentRunning,
+      onQueue,
+      onSteer,
+      selectedSendBehavior,
+    ]);
 
     const handleAlternateSendAction = useCallback(() => {
       runAlternateSendAction({
-        defaultSendBehavior,
+        selectedSendBehavior,
         isAgentRunning,
+        canSteer: canUseSteer,
+        hasAttachments: hasSteerBlockingAttachment,
         onQueue,
+        onSteer,
         handleSendMessage,
         handleQueueMessage,
+        handleSteerMessage,
       });
-    }, [defaultSendBehavior, isAgentRunning, handleSendMessage, handleQueueMessage, onQueue]);
+    }, [
+      canUseSteer,
+      handleQueueMessage,
+      handleSendMessage,
+      handleSteerMessage,
+      hasSteerBlockingAttachment,
+      isAgentRunning,
+      onQueue,
+      onSteer,
+      selectedSendBehavior,
+    ]);
 
     const getWebTextArea = useCallback(
       (): TextAreaHandle | null => getWebTextAreaImpl(textInputRef.current),
@@ -1580,9 +1782,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         submitOnEnter: shouldSubmitOnEnter,
         isAgentRunning,
         onQueue,
-        isSubmitDisabled,
-        isSubmitLoading,
-        disabled,
+        isDefaultSendDisabled: isSendButtonDisabled,
+        isAlternateSendDisabled,
         handleAlternateSendAction,
         handleDefaultSendAction,
       });
@@ -1595,14 +1796,16 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       allowEmptySubmit,
       isSubmitLoading,
     });
-    const { canPressLoadingButton, isSendButtonDisabled, defaultActionQueues } =
+    const { canPressLoadingButton, isSendButtonDisabled, isAlternateSendDisabled } =
       computeSendButtonState({
         disabled,
         isSubmitDisabled,
         isSubmitLoading,
         onSubmitLoadingPress,
-        defaultSendBehavior,
+        selectedSendBehavior,
         isAgentRunning,
+        canSteer: canUseSteer,
+        hasAttachments: hasSteerBlockingAttachment,
       });
     useIosHardwareKeyboardSubmit({
       isEnabled: isInputFocused && !isSendButtonDisabled,
@@ -1611,7 +1814,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const submitAccessibilityLabel = resolveSubmitAccessibilityLabel({
       submitButtonAccessibilityLabel,
       canPressLoadingButton,
-      defaultActionQueues,
+      selectedSendBehavior,
       isAgentRunning,
       t,
     });
@@ -1631,9 +1834,24 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const sendTooltipLabel = resolveSendTooltipLabel({
       submitButtonAccessibilityLabel,
-      defaultActionQueues,
+      selectedSendBehavior,
       t,
     });
+
+    const sendBehaviorLabels = useMemo<SendBehaviorLabels>(
+      () => ({
+        choose: t("composer.input.chooseSendBehavior"),
+        title: t("composer.input.sendBehavior"),
+        steer: t("composer.input.steer"),
+        steerDescription: t("composer.input.steerDescription"),
+        steerUnavailableWithAttachments: t("composer.input.steerUnavailableWithAttachments"),
+        queue: t("composer.input.queue"),
+        queueDescription: t("composer.input.queueDescription"),
+        interrupt: t("composer.input.interrupt"),
+        interruptDescription: t("composer.input.interruptDescription"),
+      }),
+      [t],
+    );
 
     const handleInputChange = useCallback(
       (nextValue: string) => {
@@ -1686,10 +1904,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       ],
       [inputWrapperStyle, surfacePresentation.input.opacity],
     );
-    const textInputStyle = useMemo(
-      () => [styles.textInput, computeTextInputHeightStyle(inputHeight, maxInputHeight)],
-      [inputHeight, maxInputHeight],
-    );
+    const textInputStyle = [
+      styles.textInput,
+      computeTextInputHeightStyle(inputHeight, maxInputHeight),
+    ];
     const sendButtonCombinedStyle = useMemo(
       () => [styles.sendButton, isSendButtonDisabled && styles.buttonDisabled],
       [isSendButtonDisabled],
@@ -1760,6 +1978,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               })}
             />
           </View>
+          <SteerAttachmentHint
+            shouldShow={shouldShowSteerAttachmentHint}
+            label={sendBehaviorLabels.steerUnavailableWithAttachments}
+          />
 
           {/* Button row */}
           <View style={styles.buttonRow}>
@@ -1791,6 +2013,15 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                 dictationToggleKeys={dictationToggleKeys}
               />
               {rightContent}
+              <ComposerSendBehaviorControl
+                canSteer={canUseSteer}
+                hasAttachments={hasSteerBlockingAttachment}
+                selectedBehavior={selectedSendBehavior}
+                disabled={disabled}
+                isSubmitLoading={isSubmitLoading}
+                labels={sendBehaviorLabels}
+                onSelect={handleSendBehaviorSelect}
+              />
               <SendButtonTooltip
                 shouldShow={shouldShowSendButton}
                 canPressLoadingButton={canPressLoadingButton}
@@ -1888,6 +2119,11 @@ const styles = StyleSheet.create((theme: Theme) => ({
           outlineColor: "transparent",
         } as object)
       : {}),
+  },
+  steerAttachmentHint: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    lineHeight: theme.fontSize.xs * 1.35,
   },
   buttonRow: {
     flexDirection: "row",

@@ -78,7 +78,17 @@ export const en = {
       queueMessage: "Queue message",
       sendAndInterrupt: "Send and interrupt",
       sendMessage: "Send message",
+      steerAgent: "Steer agent",
+      steer: "Steer",
+      steerDescription: "Guide the current response without interrupting it",
+      steerUnavailableWithAttachments:
+        "Steer is unavailable with attachments. Choose Queue or Interrupt instead.",
       queue: "Queue",
+      queueDescription: "Send after the current response finishes",
+      interrupt: "Interrupt",
+      interruptDescription: "Stop the current response and send now",
+      sendBehavior: "Send behavior",
+      chooseSendBehavior: "Choose send behavior",
       send: "Send",
     },
     cancel: {
@@ -120,6 +130,11 @@ export const en = {
     },
     errors: {
       failedToSend: "Failed to send message",
+      failedToSteer:
+        "Couldn't steer the agent: {{error}}. Your draft is still here—choose Queue or Interrupt, or try again.",
+      steerUnavailable:
+        "This agent is no longer available to steer. Choose Queue or Interrupt instead.",
+      steerUnknownError: "The agent did not accept the steering request",
       failedToCreateAgent: "Failed to create agent",
       noHostSelected: "No host selected",
       initialPromptRequired: "Initial prompt is required",

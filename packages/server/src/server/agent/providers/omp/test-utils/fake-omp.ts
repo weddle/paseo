@@ -430,6 +430,13 @@ export class FakeOmpSession implements OmpRuntimeSession {
     });
   }
 
+  acceptPromptWithoutEntryId(text: string): void {
+    this.emit({
+      type: "message_end",
+      message: { role: "user", content: text } as OmpAgentMessage,
+    });
+  }
+
   acceptCustomMessage(content: string): void {
     this.emit({
       type: "message_end",

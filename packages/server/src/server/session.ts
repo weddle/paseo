@@ -1929,6 +1929,8 @@ export class Session {
         return this.handleProjectRenameRequest(msg.projectId, msg.customName, msg.requestId);
       case "send_agent_message_request":
         return this.handleSendAgentMessageRequest(msg);
+      case "agent.message.steer.request":
+        return this.handleAgentSteerRequest(msg);
       case "wait_for_finish_request":
         return this.handleWaitForFinish(msg.agentId, msg.requestId, msg.timeoutMs);
       case "create_agent_request":
@@ -6268,6 +6270,33 @@ export class Session {
           boundaryCursor: msg.boundaryCursor ?? null,
           boundaryMessageId: msg.boundaryMessageId ?? null,
           error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleAgentSteerRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.message.steer.request" }>,
+  ): Promise<void> {
+    try {
+      await this.agentManager.steerAgent(msg.agentId, msg.prompt, msg.expectedTurnId);
+      this.emit({
+        type: "agent.message.steer.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          ok: true,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.message.steer.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          ok: false,
+          error: getErrorMessageOr(error, "Failed to steer agent"),
         },
       });
     }

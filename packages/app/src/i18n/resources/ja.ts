@@ -80,7 +80,17 @@ export const ja: TranslationResources = {
       queueMessage: "メッセージをキューに追加",
       sendAndInterrupt: "送信して中断",
       sendMessage: "メッセージを送信",
+      steerAgent: "エージェントを誘導",
+      steer: "誘導",
+      steerDescription: "現在の応答を中断せずに方向付けます",
+      steerUnavailableWithAttachments:
+        "添付ファイルがある場合は誘導を利用できません。代わりにキューまたは中断を選択してください。",
       queue: "キュー",
+      queueDescription: "現在の応答が完了した後に送信します",
+      interrupt: "中断",
+      interruptDescription: "現在の応答を停止して今すぐ送信します",
+      sendBehavior: "送信方法",
+      chooseSendBehavior: "送信方法を選択",
       send: "送信",
     },
     cancel: {
@@ -122,6 +132,11 @@ export const ja: TranslationResources = {
     },
     errors: {
       failedToSend: "メッセージの送信に失敗しました",
+      failedToSteer:
+        "エージェントを誘導できませんでした: {{error}}。下書きは保持されています。キューまたは中断を選択するか、もう一度お試しください。",
+      steerUnavailable:
+        "このエージェントはもう誘導できません。代わりにキューまたは中断を選択してください。",
+      steerUnknownError: "エージェントは誘導リクエストを受け付けませんでした",
       failedToCreateAgent: "エージェントの作成に失敗しました",
       noHostSelected: "ホストが選択されていません",
       initialPromptRequired: "初期プロンプトが必要です",

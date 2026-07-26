@@ -80,7 +80,17 @@ export const es: TranslationResources = {
       queueMessage: "mensaje de cola",
       sendAndInterrupt: "Enviar e interrumpir",
       sendMessage: "enviar mensaje",
+      steerAgent: "Guiar al agente",
+      steer: "Guiar",
+      steerDescription: "Guía la respuesta actual sin interrumpirla",
+      steerUnavailableWithAttachments:
+        "Guiar no está disponible con archivos adjuntos. Elige Cola o Interrumpir.",
       queue: "Cola",
+      queueDescription: "Enviar después de que termine la respuesta actual",
+      interrupt: "Interrumpir",
+      interruptDescription: "Detener la respuesta actual y enviar ahora",
+      sendBehavior: "Modo de envío",
+      chooseSendBehavior: "Elegir modo de envío",
       send: "Enviar",
     },
     cancel: {
@@ -122,6 +132,10 @@ export const es: TranslationResources = {
     },
     errors: {
       failedToSend: "No se pudo enviar el mensaje",
+      failedToSteer:
+        "No se pudo guiar al agente: {{error}}. Tu borrador sigue aquí; elige Cola o Interrumpir, o inténtalo de nuevo.",
+      steerUnavailable: "Este agente ya no está disponible para guiar. Elige Cola o Interrumpir.",
+      steerUnknownError: "El agente no aceptó la solicitud para guiarlo",
       failedToCreateAgent: "No se pudo crear el agente",
       noHostSelected: "Ningún anfitrión seleccionado",
       initialPromptRequired: "Se requiere aviso inicial",

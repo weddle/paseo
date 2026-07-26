@@ -1,15 +1,21 @@
 import type { TFunction } from "i18next";
+import type { SendBehavior } from "./state";
 
 export function resolveSubmitAccessibilityLabel(input: {
   submitButtonAccessibilityLabel: string | undefined;
   canPressLoadingButton: boolean;
-  defaultActionQueues: boolean;
+  selectedSendBehavior: SendBehavior;
   isAgentRunning: boolean;
   t: TFunction;
 }): string {
   if (input.submitButtonAccessibilityLabel) return input.submitButtonAccessibilityLabel;
   if (input.canPressLoadingButton) return input.t("composer.input.interruptAgent");
-  if (input.defaultActionQueues) return input.t("composer.input.queueMessage");
+  if (input.selectedSendBehavior === "steer" && input.isAgentRunning) {
+    return input.t("composer.input.steerAgent");
+  }
+  if (input.selectedSendBehavior === "queue" && input.isAgentRunning) {
+    return input.t("composer.input.queueMessage");
+  }
   if (input.isAgentRunning) return input.t("composer.input.sendAndInterrupt");
   return input.t("composer.input.sendMessage");
 }
@@ -44,11 +50,12 @@ export function resolveVoiceTooltipText(input: {
 
 export function resolveSendTooltipLabel(input: {
   submitButtonAccessibilityLabel: string | undefined;
-  defaultActionQueues: boolean;
+  selectedSendBehavior: SendBehavior;
   t: TFunction;
 }): string {
   if (input.submitButtonAccessibilityLabel) return input.submitButtonAccessibilityLabel;
-  return input.defaultActionQueues
+  if (input.selectedSendBehavior === "steer") return input.t("composer.input.steer");
+  return input.selectedSendBehavior === "queue"
     ? input.t("composer.input.queue")
     : input.t("composer.input.send");
 }

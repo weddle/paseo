@@ -80,7 +80,17 @@ export const ptBR: TranslationResources = {
       queueMessage: "Enfileirar mensagem",
       sendAndInterrupt: "Enviar e interromper",
       sendMessage: "Enviar mensagem",
+      steerAgent: "Orientar o agente",
+      steer: "Orientar",
+      steerDescription: "Oriente a resposta atual sem interrompê-la",
+      steerUnavailableWithAttachments:
+        "Orientar não está disponível com anexos. Escolha Fila ou Interromper.",
       queue: "Fila",
+      queueDescription: "Enviar depois que a resposta atual terminar",
+      interrupt: "Interromper",
+      interruptDescription: "Parar a resposta atual e enviar agora",
+      sendBehavior: "Modo de envio",
+      chooseSendBehavior: "Escolher modo de envio",
       send: "Enviar",
     },
     cancel: {
@@ -122,6 +132,11 @@ export const ptBR: TranslationResources = {
     },
     errors: {
       failedToSend: "Falha ao enviar mensagem",
+      failedToSteer:
+        "Não foi possível orientar o agente: {{error}}. Seu rascunho continua aqui; escolha Fila ou Interromper, ou tente novamente.",
+      steerUnavailable:
+        "Este agente não está mais disponível para orientação. Escolha Fila ou Interromper.",
+      steerUnknownError: "O agente não aceitou a solicitação de orientação",
       failedToCreateAgent: "Falha ao criar agente",
       noHostSelected: "Nenhum host selecionado",
       initialPromptRequired: "O prompt inicial é obrigatório",

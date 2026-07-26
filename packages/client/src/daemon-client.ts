@@ -2890,6 +2890,34 @@ export class DaemonClient {
     }
   }
 
+  async steerAgent(agentId: string, prompt: string, expectedTurnId: string): Promise<void> {
+    const requestId = this.createRequestId();
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.message.steer.request",
+      requestId,
+      agentId,
+      expectedTurnId,
+      prompt,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "agent.message.steer.response") {
+          return null;
+        }
+        if (msg.payload.requestId !== requestId || msg.payload.agentId !== agentId) {
+          return null;
+        }
+        return msg.payload;
+      },
+    });
+    if (!payload.ok) {
+      throw new Error(payload.error ?? "steerAgent rejected");
+    }
+  }
+
   async sendMessage(agentId: string, text: string, options?: SendMessageOptions): Promise<void> {
     await this.sendAgentMessage(agentId, text, options);
   }

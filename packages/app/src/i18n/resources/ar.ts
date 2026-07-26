@@ -80,7 +80,17 @@ export const ar: TranslationResources = {
       queueMessage: "رسالة قائمة الانتظار",
       sendAndInterrupt: "إرسال ومقاطعة",
       sendMessage: "أرسل رسالة",
+      steerAgent: "توجيه الوكيل",
+      steer: "توجيه",
+      steerDescription: "وجّه الاستجابة الحالية دون مقاطعتها",
+      steerUnavailableWithAttachments:
+        "التوجيه غير متاح مع المرفقات. اختر قائمة الانتظار أو المقاطعة بدلاً من ذلك.",
       queue: "طابور",
+      queueDescription: "أرسل بعد انتهاء الاستجابة الحالية",
+      interrupt: "مقاطعة",
+      interruptDescription: "أوقف الاستجابة الحالية وأرسل الآن",
+      sendBehavior: "سلوك الإرسال",
+      chooseSendBehavior: "اختر سلوك الإرسال",
       send: "يرسل",
     },
     cancel: {
@@ -122,6 +132,11 @@ export const ar: TranslationResources = {
     },
     errors: {
       failedToSend: "فشل في إرسال الرسالة",
+      failedToSteer:
+        "تعذر توجيه الوكيل: {{error}}. ما زالت مسودتك هنا—اختر قائمة الانتظار أو المقاطعة، أو حاول مرة أخرى.",
+      steerUnavailable:
+        "لم يعد هذا الوكيل متاحًا للتوجيه. اختر قائمة الانتظار أو المقاطعة بدلاً من ذلك.",
+      steerUnknownError: "لم يقبل الوكيل طلب التوجيه",
       failedToCreateAgent: "فشل في إنشاء الوكيل",
       noHostSelected: "لم يتم تحديد مضيف",
       initialPromptRequired: "مطلوب موجه الأولي",

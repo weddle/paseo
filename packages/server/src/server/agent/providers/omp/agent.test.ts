@@ -102,6 +102,69 @@ describe("OMP agent client and session", () => {
     });
   });
 
+  test("forwards direct text steering without reusing the initial client message id", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    const runtime = omp.runtime();
+    await omp.requireStartTurn("Start the implementation.", { clientMessageId: "client-initial" });
+    runtime.beginTurn();
+    runtime.acceptPrompt("Start the implementation.", "user-initial");
+
+    await omp.steer("Focus only on the failing test.");
+    runtime.acceptPrompt("Focus only on the failing test.", "user-steer");
+
+    expect(omp.capabilities().supportsSteering).toBe(true);
+    expect(runtime.steerRequests).toEqual([
+      { message: "Focus only on the failing test.", imageCount: 0 },
+    ]);
+    expect(omp.timeline().filter((item) => item.type === "user_message")).toEqual([
+      {
+        type: "user_message",
+        text: "Start the implementation.",
+        messageId: "user-initial",
+        clientMessageId: "client-initial",
+      },
+      {
+        type: "user_message",
+        text: "Focus only on the failing test.",
+        messageId: "user-steer",
+      },
+    ]);
+  });
+
+  test("reserves initial client message attribution before asynchronous native lookup", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    const runtime = omp.runtime();
+    runtime.branchMessages = [
+      { entryId: "user-initial", text: "Same prompt." },
+      { entryId: "user-steer", text: "Same prompt." },
+    ];
+    await omp.requireStartTurn("Same prompt.", { clientMessageId: "client-initial" });
+    runtime.beginTurn();
+    runtime.acceptPromptWithoutEntryId("Same prompt.");
+    const steering = omp.steer("Same prompt.");
+    runtime.acceptPromptWithoutEntryId("Same prompt.");
+    await steering;
+    await Promise.resolve();
+
+    expect(omp.timeline().filter((item) => item.type === "user_message")).toEqual([
+      {
+        type: "user_message",
+        text: "Same prompt.",
+        messageId: "user-initial",
+        clientMessageId: "client-initial",
+      },
+      {
+        type: "user_message",
+        text: "Same prompt.",
+        messageId: "user-steer",
+      },
+    ]);
+  });
+
   test("preserves max as the selected thinking option", async () => {
     const omp = new OmpHarness();
     await omp.start({ thinkingOptionId: "max" });

@@ -80,7 +80,17 @@ export const ru: TranslationResources = {
       queueMessage: "Сообщение в очереди",
       sendAndInterrupt: "Отправить и прервать",
       sendMessage: "Отправить сообщение",
+      steerAgent: "Направить агента",
+      steer: "Направить",
+      steerDescription: "Направить текущий ответ, не прерывая его",
+      steerUnavailableWithAttachments:
+        "Направление недоступно с вложениями. Вместо этого выберите Очередь или Прервать.",
       queue: "Очередь",
+      queueDescription: "Отправить после завершения текущего ответа",
+      interrupt: "Прервать",
+      interruptDescription: "Остановить текущий ответ и отправить сейчас",
+      sendBehavior: "Способ отправки",
+      chooseSendBehavior: "Выберите способ отправки",
       send: "Отправлять",
     },
     cancel: {
@@ -122,6 +132,11 @@ export const ru: TranslationResources = {
     },
     errors: {
       failedToSend: "Не удалось отправить сообщение",
+      failedToSteer:
+        "Не удалось направить агента: {{error}}. Черновик сохранён — выберите Очередь или Прервать либо попробуйте снова.",
+      steerUnavailable:
+        "Этот агент больше недоступен для направления. Выберите Очередь или Прервать.",
+      steerUnknownError: "Агент не принял запрос на направление",
       failedToCreateAgent: "Не удалось создать агента.",
       noHostSelected: "Хост не выбран",
       initialPromptRequired: "Требуется начальное приглашение",

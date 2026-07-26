@@ -82,7 +82,17 @@ export const fr: TranslationResources = {
       queueMessage: "Message de file d'attente",
       sendAndInterrupt: "Envoyer et interrompre",
       sendMessage: "Envoyer un message",
+      steerAgent: "Orienter l’agent",
+      steer: "Orienter",
+      steerDescription: "Oriente la réponse en cours sans l’interrompre",
+      steerUnavailableWithAttachments:
+        "L’orientation n’est pas disponible avec des pièces jointes. Choisissez File d’attente ou Interrompre.",
       queue: "File d'attente",
+      queueDescription: "Envoyer après la fin de la réponse en cours",
+      interrupt: "Interrompre",
+      interruptDescription: "Arrêter la réponse en cours et envoyer maintenant",
+      sendBehavior: "Mode d’envoi",
+      chooseSendBehavior: "Choisir le mode d’envoi",
       send: "Envoyer",
     },
     cancel: {
@@ -124,6 +134,11 @@ export const fr: TranslationResources = {
     },
     errors: {
       failedToSend: "Échec de l'envoi du message",
+      failedToSteer:
+        "Impossible d’orienter l’agent : {{error}}. Votre brouillon est toujours là ; choisissez File d’attente ou Interrompre, ou réessayez.",
+      steerUnavailable:
+        "Cet agent n’est plus disponible pour l’orientation. Choisissez File d’attente ou Interrompre.",
+      steerUnknownError: "L’agent n’a pas accepté la demande d’orientation",
       failedToCreateAgent: "Échec de la création de l'agent",
       noHostSelected: "Aucun hôte sélectionné",
       initialPromptRequired: "Une invite initiale est requise",

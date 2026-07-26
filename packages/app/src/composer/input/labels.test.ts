@@ -8,9 +8,11 @@ import {
 
 const translations: Record<string, string> = {
   "composer.input.interruptAgent": "Interrupt agent",
+  "composer.input.steerAgent": "Steer agent",
   "composer.input.queueMessage": "Queue message",
   "composer.input.sendAndInterrupt": "Send and interrupt",
   "composer.input.sendMessage": "Send message",
+  "composer.input.steer": "Steer",
   "composer.input.queue": "Queue",
   "composer.input.send": "Send",
   "composer.voice.unmuteVoiceMode": "Unmute Voice mode",
@@ -30,7 +32,7 @@ describe("composer input labels", () => {
       resolveSubmitAccessibilityLabel({
         submitButtonAccessibilityLabel: undefined,
         canPressLoadingButton: true,
-        defaultActionQueues: false,
+        selectedSendBehavior: "interrupt",
         isAgentRunning: true,
         t,
       }),
@@ -39,7 +41,7 @@ describe("composer input labels", () => {
       resolveSubmitAccessibilityLabel({
         submitButtonAccessibilityLabel: undefined,
         canPressLoadingButton: false,
-        defaultActionQueues: true,
+        selectedSendBehavior: "queue",
         isAgentRunning: true,
         t,
       }),
@@ -48,7 +50,16 @@ describe("composer input labels", () => {
       resolveSubmitAccessibilityLabel({
         submitButtonAccessibilityLabel: undefined,
         canPressLoadingButton: false,
-        defaultActionQueues: false,
+        selectedSendBehavior: "steer",
+        isAgentRunning: true,
+        t,
+      }),
+    ).toBe("Steer agent");
+    expect(
+      resolveSubmitAccessibilityLabel({
+        submitButtonAccessibilityLabel: undefined,
+        canPressLoadingButton: false,
+        selectedSendBehavior: "interrupt",
         isAgentRunning: true,
         t,
       }),
@@ -57,7 +68,7 @@ describe("composer input labels", () => {
       resolveSubmitAccessibilityLabel({
         submitButtonAccessibilityLabel: undefined,
         canPressLoadingButton: false,
-        defaultActionQueues: false,
+        selectedSendBehavior: "interrupt",
         isAgentRunning: false,
         t,
       }),
@@ -69,7 +80,7 @@ describe("composer input labels", () => {
       resolveSubmitAccessibilityLabel({
         submitButtonAccessibilityLabel: "Run now",
         canPressLoadingButton: false,
-        defaultActionQueues: false,
+        selectedSendBehavior: "interrupt",
         isAgentRunning: false,
         t,
       }),
@@ -122,14 +133,21 @@ describe("composer input labels", () => {
     expect(
       resolveSendTooltipLabel({
         submitButtonAccessibilityLabel: undefined,
-        defaultActionQueues: true,
+        selectedSendBehavior: "queue",
         t,
       }),
     ).toBe("Queue");
     expect(
       resolveSendTooltipLabel({
         submitButtonAccessibilityLabel: undefined,
-        defaultActionQueues: false,
+        selectedSendBehavior: "steer",
+        t,
+      }),
+    ).toBe("Steer");
+    expect(
+      resolveSendTooltipLabel({
+        submitButtonAccessibilityLabel: undefined,
+        selectedSendBehavior: "interrupt",
         t,
       }),
     ).toBe("Send");

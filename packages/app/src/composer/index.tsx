@@ -41,11 +41,12 @@ import {
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
-import { useSessionStore } from "@/stores/session-store";
+import { useSessionStore, type Agent, type SessionStoreState } from "@/stores/session-store";
 import { useFilePicker } from "@/hooks/use-file-picker";
 import { useFileDrop } from "@/components/file-drop/use-file-drop";
 import type { DroppedItem } from "@/components/file-drop/types";
 import { MessageInput, type MessageInputRef, type AttachmentMenuItem } from "./input/input";
+import { resolveSendErrorAfterInputChange } from "./input/state";
 import type { ImageAttachment, MessagePayload } from "./types";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import type { DraftCommandConfig } from "@/hooks/use-agent-commands-query";
@@ -54,6 +55,7 @@ import { focusWithRetries } from "@/utils/web-focus";
 import {
   cancelComposerAgent,
   dispatchComposerAgentMessage,
+  dispatchComposerSteerMessage,
   editQueuedComposerMessage,
   findGithubItemByOption,
   isAttachmentSelectedForGithubItem,
@@ -210,18 +212,46 @@ function buildRealtimeVoiceButtonStyle(
   );
 }
 
-function buildAgentStateSelector(serverId: string, agentId: string) {
-  return (state: ReturnType<typeof useSessionStore.getState>) => {
-    const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
-    return {
-      status: agent?.status ?? null,
-      contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
-      contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
-      model: agent?.model ?? null,
-      provider: agent?.provider ?? null,
-    };
+interface ComposerAgentState {
+  status: Agent["status"] | null;
+  capabilities: Agent["capabilities"] | undefined;
+  activeForegroundTurnId: string | null;
+  contextWindowMaxTokens: number | null;
+  contextWindowUsedTokens: number | null;
+  totalCostUsd: number | null;
+  model: string | null;
+  provider: Agent["provider"] | null;
+}
+
+const EMPTY_COMPOSER_AGENT_STATE: ComposerAgentState = {
+  status: null,
+  capabilities: undefined,
+  activeForegroundTurnId: null,
+  contextWindowMaxTokens: null,
+  contextWindowUsedTokens: null,
+  totalCostUsd: null,
+  model: null,
+  provider: null,
+};
+
+function resolveComposerAgentState(agent: Agent | null): ComposerAgentState {
+  if (!agent) return EMPTY_COMPOSER_AGENT_STATE;
+  const usage = agent.lastUsage;
+  return {
+    status: agent.status,
+    capabilities: agent.capabilities,
+    activeForegroundTurnId: agent.activeForegroundTurnId ?? null,
+    contextWindowMaxTokens: usage?.contextWindowMaxTokens ?? null,
+    contextWindowUsedTokens: usage?.contextWindowUsedTokens ?? null,
+    totalCostUsd: usage?.totalCostUsd ?? null,
+    model: agent.model,
+    provider: agent.provider,
   };
+}
+
+function buildAgentStateSelector(serverId: string, agentId: string) {
+  return (state: SessionStoreState) =>
+    resolveComposerAgentState(state.sessions[serverId]?.agents?.get(agentId) ?? null);
 }
 
 function renderContextWindowMeter(
@@ -1124,6 +1154,7 @@ export function Composer({
   });
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSteering, setIsSteering] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [isCancellingAgent, setIsCancellingAgent] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1131,6 +1162,7 @@ export function Composer({
   const [isGithubPickerOpen, setIsGithubPickerOpen] = useState(false);
   const [githubSearchQuery, setGithubSearchQuery] = useState("");
   const [lightboxMetadata, setLightboxMetadata] = useState<AttachmentMetadata | null>(null);
+  const isSteeringRef = useRef(false);
   const attachButtonRef = useRef<View | null>(null);
   const messageInputRef = useRef<MessageInputRef>(null);
   const isComposerLocked = resolveIsComposerLocked(submitBehavior, isSubmitLoading);
@@ -1189,12 +1221,15 @@ export function Composer({
   const autocompleteOnKeyPressRef = useRef(autocomplete.onKeyPress);
   autocompleteOnKeyPressRef.current = autocomplete.onKeyPress;
 
-  // Clear send error when user edits the input
-  useEffect(() => {
-    if (sendError && userInput) {
-      setSendError(null);
-    }
-  }, [userInput, sendError]);
+  const handleUserInputChange = useCallback(
+    (nextValue: string) => {
+      setSendError((currentError) =>
+        resolveSendErrorAfterInputChange(currentError, userInput, nextValue),
+      );
+      setUserInput(nextValue);
+    },
+    [setUserInput, userInput],
+  );
 
   useEffect(() => {
     setCursorIndex((current) => Math.min(current, userInput.length));
@@ -1317,6 +1352,12 @@ export function Composer({
   }, [onSubmitMessage]);
 
   const isAgentRunning = agentState.status === "running";
+  const activeForegroundTurnId = agentState.activeForegroundTurnId;
+  const canSteer =
+    isAgentRunning &&
+    agentState.capabilities?.supportsSteering === true &&
+    typeof activeForegroundTurnId === "string" &&
+    activeForegroundTurnId.length > 0;
   const hasAgent = agentState.status !== null;
 
   const queueWriter = useMemo<QueueWriter>(
@@ -1337,6 +1378,7 @@ export function Composer({
       });
       if (!result.queued) return;
 
+      setSendError(null);
       setUserInput("");
       setSelectedAttachments([]);
       resetSuppression();
@@ -1348,6 +1390,7 @@ export function Composer({
       queueWriter,
       resetSuppression,
       setSelectedAttachments,
+      setSendError,
       setUserInput,
     ],
   );
@@ -1684,6 +1727,93 @@ export function Composer({
       queueMessage(payload.text, outgoingAttachments);
     },
     [attachments, buildOutgoingAttachments, queueMessage, runClientSlashCommand],
+  );
+
+  const handleSteer = useCallback(
+    async (payload: MessagePayload): Promise<void> => {
+      const outgoingAttachments = buildOutgoingAttachments(attachments);
+      if (!canSteer || !activeForegroundTurnId) {
+        setSendError(
+          t("composer.errors.failedToSteer", {
+            error: t("composer.errors.steerUnavailable"),
+          }),
+        );
+        return;
+      }
+      if (outgoingAttachments.length > 0 || hasExternalContent) {
+        setSendError(
+          t("composer.errors.failedToSteer", {
+            error: t("composer.input.steerUnavailableWithAttachments"),
+          }),
+        );
+        return;
+      }
+      const text = payload.text.trim();
+      if (!text) return;
+      if (!client) {
+        setSendError(
+          t("composer.errors.failedToSteer", {
+            error: t("workspace.terminal.hostDisconnected"),
+          }),
+        );
+        return;
+      }
+      if (isSteeringRef.current) return;
+      isSteeringRef.current = true;
+
+      setSendError(null);
+      setIsSteering(true);
+      try {
+        await dispatchComposerSteerMessage({
+          client,
+          agentId: agentIdRef.current,
+          expectedTurnId: activeForegroundTurnId,
+          text,
+          stream: {
+            getTail: (id) =>
+              useSessionStore.getState().sessions[serverId]?.agentStreamTail?.get(id),
+            getHead: (id) =>
+              useSessionStore.getState().sessions[serverId]?.agentStreamHead?.get(id),
+            setHead: (updater) => setAgentStreamHead(serverId, updater),
+            setTail: (updater) => setAgentStreamTail(serverId, updater),
+          },
+        });
+        clearDraft("sent");
+        setUserInput("");
+        setSelectedAttachments([]);
+        resetSuppression();
+        onMessageSent?.();
+        onAttentionPromptSend?.();
+      } catch (error) {
+        console.error("[Composer] Failed to steer agent:", error);
+        setSendError(
+          t("composer.errors.failedToSteer", {
+            error: resolveErrorMessage(error) ?? t("composer.errors.steerUnknownError"),
+          }),
+        );
+      } finally {
+        isSteeringRef.current = false;
+        setIsSteering(false);
+      }
+    },
+    [
+      activeForegroundTurnId,
+      attachments,
+      buildOutgoingAttachments,
+      canSteer,
+      clearDraft,
+      hasExternalContent,
+      client,
+      onAttentionPromptSend,
+      onMessageSent,
+      resetSuppression,
+      serverId,
+      setAgentStreamHead,
+      setAgentStreamTail,
+      setSelectedAttachments,
+      setUserInput,
+      t,
+    ],
   );
 
   const hasSendableContent = userInput.trim().length > 0 || selectedAttachments.length > 0;
@@ -2026,6 +2156,7 @@ export function Composer({
     isSubmitLoading ||
     isUploadingFile ||
     (waitForGithubAutoAttachOnSubmit && githubAutoAttach.isResolving);
+  const isComposerBusy = isSubmitBusy || isSteering;
 
   // Disable drops while submitting/uploading: the submit path clears and restores attachments,
   // so a drop in that window would be lost or land on a locked draft. `disabled` hides the
@@ -2036,7 +2167,7 @@ export function Composer({
       onGenericFiles: handleGenericFilesDropped,
       onWorkspaceFile: handleWorkspaceFileDropped,
     },
-    { disabled: isSubmitBusy },
+    { disabled: isComposerBusy },
   );
 
   const messageInputAutoFocus = autoFocus && isDesktopWebBreakpoint;
@@ -2077,14 +2208,14 @@ export function Composer({
               <StableMessageInput
                 ref={messageInputRef}
                 value={userInput}
-                onChangeText={setUserInput}
+                onChangeText={handleUserInputChange}
                 onSubmit={handleSubmit}
                 hasExternalContent={hasExternalContent}
                 allowEmptySubmit={allowEmptySubmit}
                 submitButtonAccessibilityLabel={submitButtonAccessibilityLabel}
                 submitButtonTestID={submitButtonTestID}
                 submitIcon={submitIcon}
-                isSubmitDisabled={isSubmitBusy}
+                isSubmitDisabled={isComposerBusy}
                 isSubmitLoading={isSubmitBusy}
                 preserveHeightOnSubmit={submitBehavior === "preserve-and-lock"}
                 attachments={selectedAttachments}
@@ -2097,7 +2228,7 @@ export function Composer({
                 placeholder={messagePlaceholder}
                 autoFocus={messageInputAutoFocus}
                 autoFocusKey={`${serverId}:${agentId}:${autoFocusKey ?? ""}`}
-                disabled={isSubmitLoading}
+                disabled={isSubmitLoading || isSteering}
                 isPaneFocused={isPaneFocused}
                 leftContent={leftContent}
                 beforeVoiceContent={beforeVoiceContent}
@@ -2105,8 +2236,10 @@ export function Composer({
                 voiceServerId={serverId}
                 voiceAgentId={agentId}
                 isAgentRunning={isAgentRunning}
+                canSteer={canSteer}
                 defaultSendBehavior={appSettings.sendBehavior}
                 onQueue={handleQueue}
+                onSteer={handleSteer}
                 onSubmitLoadingPress={submitLoadingPressHandler}
                 onKeyPress={handleCommandKeyPress}
                 onSelectionChange={handleSelectionChange}

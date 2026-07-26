@@ -10,6 +10,7 @@ import type { StreamItem } from "@/types/stream";
 import {
   cancelComposerAgent,
   dispatchComposerAgentMessage,
+  dispatchComposerSteerMessage,
   editQueuedComposerMessage,
   findGithubItemByOption,
   isAttachmentSelectedForGithubItem,
@@ -403,6 +404,39 @@ describe("dispatchComposerAgentMessage", () => {
     expect(userMessage.attachments).toEqual(call.options.attachments);
     expect(userMessage.id).toBe(call.options.messageId);
     expect(userMessage.optimistic).toBe(true);
+  });
+
+  it("shows an optimistic steer immediately and rolls it back on rejection", async () => {
+    const stream = createFakeStream();
+    const steerAgent = vi.fn().mockResolvedValue(undefined);
+
+    await dispatchComposerSteerMessage({
+      client: { steerAgent },
+      agentId: "agent",
+      expectedTurnId: "turn-1",
+      text: "Use a different year.",
+      stream,
+    });
+
+    const message = stream.tail.get("agent")?.[0];
+    expect(message).toMatchObject({
+      kind: "user_message",
+      text: "Use a different year.",
+      optimistic: true,
+    });
+    expect(steerAgent).toHaveBeenCalledWith("agent", "Use a different year.", "turn-1");
+
+    const rejection = new Error("stale turn");
+    await expect(
+      dispatchComposerSteerMessage({
+        client: { steerAgent: vi.fn().mockRejectedValue(rejection) },
+        agentId: "agent",
+        expectedTurnId: "turn-1",
+        text: "This must roll back.",
+        stream,
+      }),
+    ).rejects.toBe(rejection);
+    expect(stream.tail.get("agent")).toHaveLength(1);
   });
 
   it("can send legacy GitHub attachment payloads for old daemons", async () => {

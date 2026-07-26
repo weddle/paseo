@@ -293,6 +293,69 @@ test("sets the complete viewed timeline subscription only when the daemon suppor
   });
 });
 
+test("correlates agent steering responses by request and agent id", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "steer_correlation",
+    transportFactory: () => mock.transport,
+    reconnect: { enabled: false },
+  });
+  clients.push(client);
+
+  const connect = client.connect();
+  mock.triggerOpen();
+  await connect;
+
+  const steering = client.steerAgent("agent-1", "Focus only on the failing test.", "turn-current");
+  await Promise.resolve();
+  const request = z
+    .object({
+      type: z.literal("agent.message.steer.request"),
+      requestId: z.string(),
+      agentId: z.literal("agent-1"),
+      expectedTurnId: z.literal("turn-current"),
+      prompt: z.literal("Focus only on the failing test."),
+    })
+    .parse(parseSentFrame(mock.sent[0]));
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.message.steer.response",
+      payload: {
+        requestId: "other-request",
+        agentId: "agent-1",
+        ok: false,
+        error: "wrong response",
+      },
+    }),
+  );
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.message.steer.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "other-agent",
+        ok: false,
+        error: "wrong agent",
+      },
+    }),
+  );
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.message.steer.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "agent-1",
+        ok: true,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(steering).resolves.toBeUndefined();
+});
+
 test("normalizes legacy and dedicated agent attention notifications", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({
