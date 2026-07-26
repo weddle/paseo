@@ -40,6 +40,8 @@ export const SteerQueuedCard = memo(function SteerQueuedCard({
       statusLabel = t("composer.steerQueue.unconfirmed");
       statusIndicator = <ThemedCircleAlert size={16} uniProps={warningColorMapping} />;
       break;
+    default:
+      throw new Error(`Unsupported steer delivery state: ${deliveryState}`);
   }
   const timestampLabel = useMemo(() => formatMessageTimestamp(new Date(timestamp)), [timestamp]);
 
