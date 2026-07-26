@@ -901,6 +901,7 @@ type CorrelatedResponsePayload<TType extends CorrelatedResponseType> = Extract<
   { type: TType }
 >["payload"];
 
+export type SteerAgentDispatchResult = { status: "queued" } | { status: "rejected"; error: string };
 class DaemonRpcError extends Error {
   readonly requestId: string;
   readonly requestType?: string;
@@ -2890,7 +2891,11 @@ export class DaemonClient {
     }
   }
 
-  async steerAgent(agentId: string, prompt: string, expectedTurnId: string): Promise<void> {
+  async steerAgent(
+    agentId: string,
+    prompt: string,
+    expectedTurnId: string,
+  ): Promise<SteerAgentDispatchResult> {
     const requestId = this.createRequestId();
     const message = SessionInboundMessageSchema.parse({
       type: "agent.message.steer.request",
@@ -2899,23 +2904,35 @@ export class DaemonClient {
       expectedTurnId,
       prompt,
     });
-    const payload = await this.sendRequest({
-      requestId,
-      message,
-      options: { skipQueue: true },
-      select: (msg) => {
-        if (msg.type !== "agent.message.steer.response") {
-          return null;
-        }
-        if (msg.payload.requestId !== requestId || msg.payload.agentId !== agentId) {
-          return null;
-        }
-        return msg.payload;
-      },
-    });
-    if (!payload.ok) {
-      throw new Error(payload.error ?? "steerAgent rejected");
+    let payload: Extract<
+      SessionOutboundMessage,
+      { type: "agent.message.steer.response" }
+    >["payload"];
+    try {
+      payload = await this.sendRequest({
+        requestId,
+        message,
+        options: { skipQueue: true },
+        select: (msg) => {
+          if (msg.type !== "agent.message.steer.response") {
+            return null;
+          }
+          if (msg.payload.requestId !== requestId || msg.payload.agentId !== agentId) {
+            return null;
+          }
+          return msg.payload;
+        },
+      });
+    } catch (error) {
+      if (error instanceof DaemonRpcError) {
+        return { status: "rejected", error: error.message };
+      }
+      throw error;
     }
+    if (!payload.ok) {
+      return { status: "rejected", error: payload.error ?? "steerAgent rejected" };
+    }
+    return { status: "queued" };
   }
 
   async sendMessage(agentId: string, text: string, options?: SendMessageOptions): Promise<void> {

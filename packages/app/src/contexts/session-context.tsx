@@ -11,7 +11,7 @@ import {
   refreshAgentInitializationTimeout,
 } from "@/hooks/use-agent-initialization";
 import { prefetchProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { generateMessageId, type StreamItem } from "@/types/stream";
+import { generateMessageId, markQueuedSteersUnconfirmed, type StreamItem } from "@/types/stream";
 import {
   createSessionAgentStreamReducerQueue,
   processTimelineResponse,
@@ -91,6 +91,19 @@ function getTimelineDeliveryMode(selectiveAgentTimeline?: boolean): TimelineDeli
 
 function decodeBase64Chunk(base64: string): Uint8Array {
   return Buffer.from(base64, "base64");
+}
+
+function markQueuedSteersUnconfirmedByAgent(
+  streams: Map<string, StreamItem[]>,
+): Map<string, StreamItem[]> {
+  let next: Map<string, StreamItem[]> | null = null;
+  for (const [agentId, items] of streams) {
+    const updated = markQueuedSteersUnconfirmed(items);
+    if (updated === items) continue;
+    next ??= new Map(streams);
+    next.set(agentId, updated);
+  }
+  return next ?? streams;
 }
 
 function buildAudioPlaybackSource(chunks: BufferedAudioChunk[]): AudioPlaybackSource {
@@ -618,13 +631,23 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
     voiceRuntime?.updateSessionConnection(serverId, isConnected);
   }, [isConnected, serverId, voiceRuntime]);
 
-  // If the client drops mid-initialization, clear pending flags
+  // The daemon transport cannot tell us whether OMP retained a queued steer
+  // across a disconnect. Keep it visible, but stop claiming it is queued.
   useEffect(() => {
     if (!isConnected) {
       flushAgentLastActivity();
       setInitializingAgents(serverId, new Map());
+      setAgentStreamTail(serverId, markQueuedSteersUnconfirmedByAgent);
+      setAgentStreamHead(serverId, markQueuedSteersUnconfirmedByAgent);
     }
-  }, [flushAgentLastActivity, serverId, isConnected, setInitializingAgents]);
+  }, [
+    flushAgentLastActivity,
+    isConnected,
+    serverId,
+    setAgentStreamHead,
+    setAgentStreamTail,
+    setInitializingAgents,
+  ]);
 
   const applyWorkspaceSetupProgress = useCallback(
     (payload: WorkspaceSetupProgressPayload) => {

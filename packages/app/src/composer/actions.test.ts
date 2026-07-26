@@ -406,11 +406,17 @@ describe("dispatchComposerAgentMessage", () => {
     expect(userMessage.optimistic).toBe(true);
   });
 
-  it("shows an optimistic steer immediately and rolls it back on rejection", async () => {
+  it("shows a pending steer card and marks it queued after runtime dispatch acceptance", async () => {
     const stream = createFakeStream();
-    const steerAgent = vi.fn().mockResolvedValue(undefined);
+    let resolveSteer: (value: { status: "queued" }) => void = () => undefined;
+    const steerAgent = vi.fn(
+      () =>
+        new Promise<{ status: "queued" }>((resolve) => {
+          resolveSteer = resolve;
+        }),
+    );
 
-    await dispatchComposerSteerMessage({
+    const dispatch = dispatchComposerSteerMessage({
       client: { steerAgent },
       agentId: "agent",
       expectedTurnId: "turn-1",
@@ -418,25 +424,65 @@ describe("dispatchComposerAgentMessage", () => {
       stream,
     });
 
-    const message = stream.tail.get("agent")?.[0];
-    expect(message).toMatchObject({
-      kind: "user_message",
-      text: "Use a different year.",
-      optimistic: true,
-    });
+    expect(stream.tail.get("agent")).toEqual([
+      expect.objectContaining({
+        kind: "steer_queued",
+        text: "Use a different year.",
+        deliveryState: "dispatching",
+      }),
+    ]);
     expect(steerAgent).toHaveBeenCalledWith("agent", "Use a different year.", "turn-1");
 
-    const rejection = new Error("stale turn");
+    resolveSteer({ status: "queued" });
+
+    await expect(dispatch).resolves.toEqual({ status: "queued" });
+    expect(stream.tail.get("agent")).toEqual([
+      expect.objectContaining({
+        kind: "steer_queued",
+        text: "Use a different year.",
+        deliveryState: "queued",
+      }),
+    ]);
+  });
+
+  it("removes a steer card when OMP explicitly rejects the dispatch", async () => {
+    const stream = createFakeStream();
+
     await expect(
       dispatchComposerSteerMessage({
-        client: { steerAgent: vi.fn().mockRejectedValue(rejection) },
+        client: {
+          steerAgent: vi.fn().mockResolvedValue({ status: "rejected", error: "stale turn" }),
+        },
         agentId: "agent",
         expectedTurnId: "turn-1",
         text: "This must roll back.",
         stream,
       }),
-    ).rejects.toBe(rejection);
-    expect(stream.tail.get("agent")).toHaveLength(1);
+    ).rejects.toThrow("stale turn");
+
+    expect(stream.tail.get("agent")).toEqual([]);
+  });
+
+  it("keeps a transport-interrupted steer visibly unconfirmed", async () => {
+    const stream = createFakeStream();
+    const sessionClosed = new Error("Daemon client closed");
+
+    const result = await dispatchComposerSteerMessage({
+      client: { steerAgent: vi.fn().mockRejectedValue(sessionClosed) },
+      agentId: "agent",
+      expectedTurnId: "turn-1",
+      text: "Keep this pending until OMP confirms it.",
+      stream,
+    });
+
+    expect(result).toEqual({ status: "unconfirmed", error: sessionClosed });
+    expect(stream.tail.get("agent")).toEqual([
+      expect.objectContaining({
+        kind: "steer_queued",
+        text: "Keep this pending until OMP confirms it.",
+        deliveryState: "unconfirmed",
+      }),
+    ]);
   });
 
   it("can send legacy GitHub attachment payloads for old daemons", async () => {

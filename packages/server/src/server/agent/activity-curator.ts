@@ -132,6 +132,16 @@ function formatToolCallEntry(
   return activityEntry(summary ? `[${displayName}] ${summary}` : `[${displayName}]`);
 }
 
+function formatIrcMessageEntry(
+  item: Extract<AgentTimelineItem, { type: "irc_message" }>,
+): ActivityEntry {
+  const recipient = item.recipient ? ` to ${item.recipient}` : "";
+  const replyTo = item.replyTo ? `, reply to ${item.replyTo}` : "";
+  return activityEntry(
+    `[IRC ${item.deliveryState} from ${item.sender}${recipient}${replyTo}] ${item.body.trim()}`,
+  );
+}
+
 function curateProjectedActivityEntries(
   items: readonly AgentTimelineItem[],
   options?: ActivityCuratorOptions,
@@ -182,6 +192,10 @@ function curateProjectedActivityEntries(
       case "error":
         flushBuffers(entries, buffers, options);
         entries.push(activityEntry(`[Error] ${item.message}`));
+        break;
+      case "irc_message":
+        flushBuffers(entries, buffers, options);
+        entries.push(formatIrcMessageEntry(item));
         break;
       case "compaction":
         flushBuffers(entries, buffers, options);

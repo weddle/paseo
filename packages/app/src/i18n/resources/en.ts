@@ -91,6 +91,11 @@ export const en = {
       chooseSendBehavior: "Choose send behavior",
       send: "Send",
     },
+    steerQueue: {
+      dispatching: "Queueing steer…",
+      queued: "Steer queued",
+      unconfirmed: "Steer delivery unconfirmed",
+    },
     cancel: {
       cancelingAgent: "Canceling agent",
       stopAgent: "Stop agent",
@@ -135,6 +140,8 @@ export const en = {
       steerUnavailable:
         "This agent is no longer available to steer. Choose Queue or Interrupt instead.",
       steerUnknownError: "The agent did not accept the steering request",
+      steerDeliveryUnconfirmed:
+        "Steer delivery was not confirmed. The entry will stay marked unconfirmed until OMP confirms it after reconnecting.",
       failedToCreateAgent: "Failed to create agent",
       noHostSelected: "No host selected",
       initialPromptRequired: "Initial prompt is required",

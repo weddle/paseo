@@ -1,4 +1,8 @@
-import type { AgentProvider, ToolCallDetail } from "@getpaseo/protocol/agent-types";
+import type {
+  AgentProvider,
+  IrcMessageDeliveryState,
+  ToolCallDetail,
+} from "@getpaseo/protocol/agent-types";
 import type { AgentAttachment, AgentStreamEventPayload } from "@getpaseo/protocol/messages";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { extractTaskEntriesFromToolCall } from "../utils/tool-call-parsers";
@@ -74,11 +78,13 @@ function createAssistantItemId(
 
 export type StreamItem =
   | UserMessageItem
+  | SteerQueuedItem
   | AssistantMessageItem
   | ThoughtItem
   | ToolCallItem
   | TodoListItem
   | ActivityLogItem
+  | IrcMessageItem
   | CompactionItem;
 
 export type UserMessageImageAttachment = AttachmentMetadata;
@@ -92,6 +98,28 @@ export interface UserMessageItem {
   optimistic?: true;
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
+}
+
+export type SteerQueuedDeliveryState = "dispatching" | "queued" | "unconfirmed";
+
+/**
+ * A locally rendered steering request. OMP owns the actual queue, and its
+ * runtime surface provides no authoritative pending-entry edit or removal API.
+ * This item becomes a user message only after OMP emits that native entry.
+ */
+export interface SteerQueuedItem {
+  kind: "steer_queued";
+  id: string;
+  text: string;
+  timestamp: Date;
+  deliveryState: SteerQueuedDeliveryState;
+}
+
+export interface SteerQueuedItemInput {
+  id: string;
+  text: string;
+  timestamp: Date;
+  deliveryState: SteerQueuedDeliveryState;
 }
 
 export interface OptimisticUserMessageInput {
@@ -180,6 +208,16 @@ export interface ActivityLogItem {
   activityType: ActivityLogType;
   message: string;
   metadata?: Record<string, unknown>;
+}
+export interface IrcMessageItem {
+  kind: "irc_message";
+  id: string;
+  timestamp: Date;
+  sender: string;
+  recipient?: string;
+  replyTo?: string;
+  body: string;
+  deliveryState: IrcMessageDeliveryState;
 }
 
 export interface CompactionItem {
@@ -311,6 +349,44 @@ export function appendOptimisticUserMessageToStream(params: {
   };
 }
 
+export function buildSteerQueuedItem(input: SteerQueuedItemInput): SteerQueuedItem {
+  return {
+    kind: "steer_queued",
+    id: input.id,
+    text: input.text,
+    timestamp: input.timestamp,
+    deliveryState: input.deliveryState,
+  };
+}
+
+export function appendSteerQueuedItemToStream(params: {
+  tail: StreamItem[];
+  head: StreamItem[];
+  message: SteerQueuedItem;
+  placement: OptimisticUserMessagePlacement;
+}): ApplyStreamEventResult {
+  const { tail, head, message, placement } = params;
+  if (tail.some((item) => item.id === message.id) || head.some((item) => item.id === message.id)) {
+    return { tail, head, changedTail: false, changedHead: false };
+  }
+
+  if (placement === "active-head" && head.length > 0) {
+    return {
+      tail,
+      head: [...head, message],
+      changedTail: false,
+      changedHead: true,
+    };
+  }
+
+  return {
+    tail: [...tail, message],
+    head,
+    changedTail: true,
+    changedHead: false,
+  };
+}
+
 export function handoffCreatedAgentUserMessageToStream(params: {
   tail: StreamItem[];
   head: StreamItem[];
@@ -365,6 +441,15 @@ function appendUserMessage(
 
   const chunkSeed = chunk.trim() || chunk;
   const entryId = messageId ?? createUniqueTimelineId(state, "user", chunkSeed, timestamp);
+  const queuedSteerIndex =
+    clientMessageId === undefined
+      ? state.findIndex(
+          (entry) =>
+            entry.kind === "steer_queued" &&
+            entry.text === chunk &&
+            entry.timestamp.getTime() <= timestamp.getTime(),
+        )
+      : -1;
   const optimisticIndex = state.findIndex(
     (entry) =>
       entry.kind === "user_message" &&
@@ -383,6 +468,11 @@ function appendUserMessage(
     optimistic,
   });
 
+  if (queuedSteerIndex >= 0) {
+    const next = [...state];
+    next[queuedSteerIndex] = nextItem;
+    return next;
+  }
   if (optimisticIndex >= 0) {
     const next = [...state];
     next[optimisticIndex] = nextItem;
@@ -393,8 +483,22 @@ function appendUserMessage(
 }
 
 export function clearOptimisticUserMessages(state: StreamItem[]): StreamItem[] {
-  const next = state.filter((item) => item.kind !== "user_message" || !item.optimistic);
+  const next = state.filter(
+    (item) => (item.kind !== "user_message" || !item.optimistic) && item.kind !== "steer_queued",
+  );
   return next.length === state.length ? state : next;
+}
+
+export function markQueuedSteersUnconfirmed(state: StreamItem[]): StreamItem[] {
+  let changed = false;
+  const next = state.map((item) => {
+    if (item.kind !== "steer_queued" || item.deliveryState === "unconfirmed") {
+      return item;
+    }
+    changed = true;
+    return { ...item, deliveryState: "unconfirmed" as const };
+  });
+  return changed ? next : state;
 }
 
 function appendAssistantMessage(
@@ -881,6 +985,26 @@ function reduceTimelineEvent(
       }));
       return finalizeActiveThoughts(appendTodoList(state, event.provider, items, timestamp));
     }
+    case "irc_message": {
+      const idSeed = [
+        item.sender,
+        item.recipient ?? "",
+        item.replyTo ?? "",
+        item.body,
+        item.deliveryState,
+      ].join("\u0000");
+      const ircMessage: IrcMessageItem = {
+        kind: "irc_message",
+        id: createUniqueTimelineId(state, "irc", idSeed, timestamp),
+        timestamp,
+        sender: item.sender,
+        ...(item.recipient ? { recipient: item.recipient } : {}),
+        ...(item.replyTo ? { replyTo: item.replyTo } : {}),
+        body: item.body,
+        deliveryState: item.deliveryState,
+      };
+      return finalizeActiveThoughts([...state, ircMessage]);
+    }
     case "error": {
       const activity: ActivityLogItem = {
         kind: "activity_log",
@@ -975,7 +1099,10 @@ function applyCompletionToTail(
   source: StreamUpdateSource,
 ): StreamItem[] {
   const finalized = finalizeActiveThoughts(tail);
-  return reduceStreamUpdate(finalized, event, timestamp, { source });
+  const reduced = reduceStreamUpdate(finalized, event, timestamp, { source });
+  return event.type === "turn_failed" || event.type === "turn_canceled"
+    ? markQueuedSteersUnconfirmed(reduced)
+    : reduced;
 }
 
 /**
@@ -996,6 +1123,8 @@ function getEventItemKind(event: AgentStreamEventPayload): StreamItem["kind"] | 
       return "tool_call";
     case "todo":
       return "todo_list";
+    case "irc_message":
+      return "irc_message";
     case "error":
       return "activity_log";
     default:

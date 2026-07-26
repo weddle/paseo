@@ -353,7 +353,7 @@ test("correlates agent steering responses by request and agent id", async () => 
     }),
   );
 
-  await expect(steering).resolves.toBeUndefined();
+  await expect(steering).resolves.toEqual({ status: "queued" });
 });
 
 test("normalizes legacy and dedicated agent attention notifications", async () => {

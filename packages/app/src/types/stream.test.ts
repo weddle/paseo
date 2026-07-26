@@ -6,6 +6,7 @@ import {
   applyStreamEvent,
   appendOptimisticUserMessageToStream,
   buildOptimisticUserMessage,
+  buildSteerQueuedItem,
   clearOptimisticUserMessages,
   handoffCreatedAgentUserMessageToStream,
   hydrateStreamState,
@@ -1398,6 +1399,71 @@ describe("turn lifecycle events", () => {
     assert.strictEqual(userMessages.length, 1);
     assert.strictEqual(userMessages[0]?.id, "provider-owned-head");
     assert.strictEqual(userMessages[0]?.optimistic, undefined);
+  });
+
+  it("promotes a queued steer only when OMP emits its native user entry", () => {
+    const queuedAt = new Date("2025-01-01T15:03:02Z");
+    const confirmedAt = new Date("2025-01-01T15:03:03Z");
+    const queued = buildSteerQueuedItem({
+      id: "local-steer",
+      text: "Focus on the failing test.",
+      timestamp: queuedAt,
+      deliveryState: "queued",
+    });
+
+    const result = applyStreamEvent({
+      tail: [queued],
+      head: [],
+      event: {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "user_message",
+          text: "Focus on the failing test.",
+          messageId: "omp-entry-1",
+        },
+      },
+      timestamp: confirmedAt,
+      source: "live",
+    });
+
+    assert.deepStrictEqual(result.tail, [
+      {
+        kind: "user_message",
+        id: "omp-entry-1",
+        text: "Focus on the failing test.",
+        timestamp: confirmedAt,
+      },
+    ]);
+    assert.deepStrictEqual(result.head, []);
+  });
+
+  it("marks a queued steer unconfirmed when OMP closes the turn before confirmation", () => {
+    const queued = buildSteerQueuedItem({
+      id: "local-steer",
+      text: "Continue with the fix.",
+      timestamp: new Date("2025-01-01T15:03:02Z"),
+      deliveryState: "queued",
+    });
+
+    const result = applyStreamEvent({
+      tail: [queued],
+      head: [],
+      event: {
+        type: "turn_failed",
+        provider: "omp",
+        error: "OMP session closed",
+      },
+      timestamp: new Date("2025-01-01T15:03:03Z"),
+      source: "live",
+    });
+
+    expect(result.tail).toEqual([
+      expect.objectContaining({
+        kind: "steer_queued",
+        deliveryState: "unconfirmed",
+      }),
+    ]);
   });
 
   it("replaces multiple optimistic user messages in FIFO order", () => {

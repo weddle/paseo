@@ -95,6 +95,11 @@ export const fr: TranslationResources = {
       chooseSendBehavior: "Choisir le mode d’envoi",
       send: "Envoyer",
     },
+    steerQueue: {
+      dispatching: "Mise en file de l’orientation…",
+      queued: "Orientation en file d’attente",
+      unconfirmed: "Livraison de l’orientation non confirmée",
+    },
     cancel: {
       cancelingAgent: "Agent d'annulation",
       stopAgent: "Agent d'arrêt",
@@ -139,6 +144,8 @@ export const fr: TranslationResources = {
       steerUnavailable:
         "Cet agent n’est plus disponible pour l’orientation. Choisissez File d’attente ou Interrompre.",
       steerUnknownError: "L’agent n’a pas accepté la demande d’orientation",
+      steerDeliveryUnconfirmed:
+        "La livraison de l’orientation n’a pas été confirmée. L’entrée restera marquée comme non confirmée jusqu’à confirmation par OMP après reconnexion.",
       failedToCreateAgent: "Échec de la création de l'agent",
       noHostSelected: "Aucun hôte sélectionné",
       initialPromptRequired: "Une invite initiale est requise",

@@ -582,6 +582,14 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     type: z.literal("reasoning"),
     text: z.string(),
   }),
+  z.object({
+    type: z.literal("irc_message"),
+    sender: z.string(),
+    recipient: z.string().optional(),
+    replyTo: z.string().optional(),
+    body: z.string(),
+    deliveryState: z.enum(["delivered", "failed", "unknown"]),
+  }),
   ToolCallTimelineItemPayloadSchema,
   z.object({
     type: z.literal("todo"),

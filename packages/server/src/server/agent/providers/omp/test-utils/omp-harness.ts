@@ -391,6 +391,12 @@ export class OmpHarness {
   timeline(): AgentTimelineItem[] {
     return this.events.flatMap((event) => (event.type === "timeline" ? [event.item] : []));
   }
+  usageUpdates(): Extract<AgentStreamEvent, { type: "usage_updated" }>[] {
+    return this.events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "usage_updated" }> =>
+        event.type === "usage_updated",
+    );
+  }
 
   async history(): Promise<AgentTimelineItem[]> {
     const items: AgentTimelineItem[] = [];
@@ -430,6 +436,15 @@ export class OmpHarness {
 
   async commands() {
     return await this.requireSession().listCommands();
+  }
+  async runOutOfBand(prompt: string): Promise<AgentStreamEvent[]> {
+    const handler = this.requireSession().tryHandleOutOfBand?.(prompt);
+    if (!handler) {
+      throw new Error(`OMP does not handle out-of-band prompt: ${prompt}`);
+    }
+    const events: AgentStreamEvent[] = [];
+    await handler.run({ emit: (event) => events.push(event) });
+    return events;
   }
 
   async setMode(modeId: string) {

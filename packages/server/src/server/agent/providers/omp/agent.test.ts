@@ -384,6 +384,33 @@ describe("OMP agent client and session", () => {
     ]);
   });
 
+  test("maps a live IRC envelope to a typed timeline item instead of assistant Markdown", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    omp
+      .runtime()
+      .acceptCustomMessage(
+        [
+          "<irc>",
+          "Incoming IRC message from agent `CodexAppServerResearch`:",
+          "",
+          "Use a typed timeline card instead of assistant Markdown.",
+          "</irc>",
+        ].join("\n"),
+      );
+
+    expect(omp.timeline()).toEqual([
+      {
+        type: "irc_message",
+        sender: "CodexAppServerResearch",
+        body: "Use a typed timeline card instead of assistant Markdown.",
+        deliveryState: "delivered",
+      },
+    ]);
+    expect(omp.timeline().some((item) => item.type === "assistant_message")).toBe(false);
+  });
+
   test("does not complete a queued model turn from OMP's local-only hint", async () => {
     const omp = new OmpHarness();
     await omp.start();
@@ -541,6 +568,101 @@ describe("OMP agent client and session", () => {
       type: "warning",
       message: "Start a new OMP session to change approval mode",
     });
+  });
+  test("projects a manual SnapCompact result and refreshes usage without lifecycle events", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+    const runtime = omp.runtime();
+    runtime.compactResult = {
+      summary: "Archived the earlier transcript as SnapCompact frames.",
+      shortSummary: "Archived earlier transcript",
+      firstKeptEntryId: "entry-42",
+      tokensBefore: 120_000,
+    };
+    runtime.stats = {
+      tokens: { input: 2_000, output: 300, cacheRead: 100, cacheWrite: 0, total: 2_400 },
+      cost: 0.42,
+    };
+    runtime.state = {
+      ...runtime.state,
+      contextUsage: { tokens: 12_000, contextWindow: 128_000 },
+    };
+
+    const events = await omp.runOutOfBand("/compact retain the implementation plan");
+
+    expect(runtime.compactRequests).toEqual([
+      { customInstructions: "retain the implementation plan" },
+    ]);
+    expect(events).toEqual([
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "compaction",
+          status: "completed",
+          trigger: "manual",
+          preTokens: 120_000,
+        },
+      },
+    ]);
+    expect(omp.usageUpdates()).toEqual([
+      {
+        type: "usage_updated",
+        provider: "omp",
+        turnId: undefined,
+        usage: {
+          inputTokens: 2_000,
+          cachedInputTokens: 100,
+          outputTokens: 300,
+          totalCostUsd: 0.42,
+          contextWindowMaxTokens: 128_000,
+          contextWindowUsedTokens: 12_000,
+        },
+      },
+    ]);
+  });
+
+  test("releases manual compaction after no-event success and error responses", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+    const runtime = omp.runtime();
+    runtime.compactError = new Error("OMP RPC session is closed");
+
+    const failedEvents = await omp.runOutOfBand("/compact");
+
+    runtime.compactError = null;
+    runtime.compactResult = {
+      summary: "Compacted after reconnecting.",
+      firstKeptEntryId: "entry-43",
+      tokensBefore: 80_000,
+    };
+    const completedEvents = await omp.runOutOfBand("/compact");
+    const nextCompletedEvents = await omp.runOutOfBand("/compact");
+
+    expect(failedEvents).toEqual([
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "assistant_message",
+          text: "[Error] Failed to compact context: OMP RPC session is closed",
+        },
+      },
+    ]);
+    expect(completedEvents).toEqual([
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "compaction",
+          status: "completed",
+          trigger: "manual",
+          preTokens: 80_000,
+        },
+      },
+    ]);
+    expect(nextCompletedEvents).toEqual(completedEvents);
+    expect(runtime.compactRequests).toEqual([{}, {}, {}]);
   });
 
   test("rewinds natively, interrupts, and shuts down", async () => {

@@ -56,6 +56,8 @@ export function estimateStreamItemHeight(item: StreamItem): number {
       return 144;
     case "activity_log":
       return 88;
+    case "steer_queued":
+      return 104;
     case "compaction":
       return 72;
     default:

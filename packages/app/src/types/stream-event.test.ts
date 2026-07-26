@@ -57,6 +57,19 @@ const reasoningChunk = (text: string): AgentStreamEventPayload => ({
   },
 });
 
+const ircMessageEvent = (): AgentStreamEventPayload => ({
+  type: "timeline",
+  provider: "omp",
+  item: {
+    type: "irc_message",
+    sender: "CodexAppServerResearch",
+    recipient: "OmpIrcTimeline",
+    replyTo: "inbox-42",
+    body: "Use a typed timeline card instead of assistant Markdown.",
+    deliveryState: "delivered",
+  },
+});
+
 describe("applyStreamEvent", () => {
   it("buffers reasoning chunks in head", () => {
     const result = applyStreamEvent({
@@ -181,6 +194,34 @@ describe("applyStreamEvent", () => {
     expect((result.tail[0] as ThoughtItem).status).toBe("ready");
     expect(result.head).toHaveLength(1);
     expect(result.head[0].kind).toBe("assistant_message");
+  });
+
+  it("maps an IRC timeline event to a dedicated non-Markdown stream item", () => {
+    let result = applyStreamEvent({
+      tail: [],
+      head: [],
+      event: reasoningChunk("Thinking..."),
+      timestamp: baseTimestamp,
+    });
+    result = applyStreamEvent({
+      tail: result.tail,
+      head: result.head,
+      event: ircMessageEvent(),
+      timestamp: baseTimestamp,
+    });
+
+    expect(result.head).toEqual([]);
+    expect(result.tail).toMatchObject([
+      { kind: "thought", status: "ready" },
+      {
+        kind: "irc_message",
+        sender: "CodexAppServerResearch",
+        recipient: "OmpIrcTimeline",
+        replyTo: "inbox-42",
+        body: "Use a typed timeline card instead of assistant Markdown.",
+        deliveryState: "delivered",
+      },
+    ]);
   });
 
   it("keeps references stable for no-op events", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentStreamEventPayload } from "@getpaseo/protocol/messages";
 import {
   buildOptimisticUserMessage,
+  buildSteerQueuedItem,
   hydrateStreamState,
   type AgentToolCallItem,
   type StreamItem,
@@ -413,6 +414,43 @@ describe("processTimelineResponse", () => {
     });
 
     expect(result.tail).toEqual([optimistic]);
+  });
+
+  it("promotes a queued steer from authoritative reconnect history", () => {
+    const queued = buildSteerQueuedItem({
+      id: "local-steer",
+      text: "Focus on the failing test.",
+      timestamp: new Date(1000),
+      deliveryState: "unconfirmed",
+    });
+
+    const result = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: [queued],
+      payload: {
+        ...baseTimelineInput.payload,
+        reset: true,
+        entries: [
+          {
+            ...makeTimelineEntry(1, "Focus on the failing test.", "user_message"),
+            item: {
+              type: "user_message",
+              text: "Focus on the failing test.",
+              messageId: "omp-native-steer",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.tail).toEqual([
+      {
+        kind: "user_message",
+        id: "omp-native-steer",
+        text: "Focus on the failing test.",
+        timestamp: new Date(1001),
+      },
+    ]);
   });
 
   it("does not move an unmatched submission during timeline replacement", () => {

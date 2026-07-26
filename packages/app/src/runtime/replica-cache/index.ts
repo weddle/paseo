@@ -79,6 +79,52 @@ function hasString(value: Record<string, unknown>, key: string): boolean {
   return typeof value[key] === "string";
 }
 
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function isIrcDeliveryState(value: unknown): boolean {
+  switch (value) {
+    case "delivered":
+    case "failed":
+    case "unknown":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isIrcMessageItem(value: Record<string, unknown>): boolean {
+  if (!hasString(value, "sender")) {
+    return false;
+  }
+  if (!hasString(value, "body")) {
+    return false;
+  }
+  if (!isOptionalString(value.recipient)) {
+    return false;
+  }
+  if (!isOptionalString(value.replyTo)) {
+    return false;
+  }
+  return isIrcDeliveryState(value.deliveryState);
+}
+
+function isSteerQueuedDeliveryState(value: unknown): boolean {
+  switch (value) {
+    case "dispatching":
+    case "queued":
+    case "unconfirmed":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isSteerQueuedItem(value: Record<string, unknown>): boolean {
+  return hasString(value, "text") && isSteerQueuedDeliveryState(value.deliveryState);
+}
+
 function isStreamItem(value: unknown): value is StreamItem {
   if (!isRecord(value) || !hasString(value, "id") || !(value.timestamp instanceof Date)) {
     return false;
@@ -95,6 +141,10 @@ function isStreamItem(value: unknown): value is StreamItem {
       return hasString(value, "provider") && Array.isArray(value.items);
     case "activity_log":
       return hasString(value, "message") && hasString(value, "activityType");
+    case "irc_message":
+      return isIrcMessageItem(value);
+    case "steer_queued":
+      return isSteerQueuedItem(value);
     case "compaction":
       return value.status === "loading" || value.status === "completed";
     default:

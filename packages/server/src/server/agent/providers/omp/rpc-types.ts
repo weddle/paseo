@@ -549,6 +549,14 @@ export const OmpPromptAckSchema = z
   .object({ agentInvoked: z.boolean().optional() })
   .passthrough()
   .optional();
+export const OmpCompactionResultSchema = z
+  .object({
+    summary: z.string().optional(),
+    shortSummary: z.string().optional(),
+    firstKeptEntryId: z.string().optional(),
+    tokensBefore: z.number().optional(),
+  })
+  .passthrough();
 export const OmpMessagesResultSchema = z
   .object({ messages: z.array(OmpAgentMessageSchema).optional() })
   .passthrough();
@@ -611,6 +619,7 @@ export type OmpAvailableCommand = z.infer<typeof OmpAvailableCommandSchema>;
 export type OmpAvailableCommandsUpdateEvent = z.infer<typeof OmpAvailableCommandsUpdateEventSchema>;
 export type OmpRpcCommand = z.infer<typeof OmpRpcCommandSchema>;
 export type OmpPromptAck = z.infer<typeof OmpPromptAckSchema> & { requestId?: string };
+export type OmpCompactionResult = z.infer<typeof OmpCompactionResultSchema>;
 
 export interface OmpSubagentSnapshot {
   id: string;

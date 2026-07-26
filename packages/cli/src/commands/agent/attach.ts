@@ -52,6 +52,14 @@ function printTimelineItem(item: AgentTimelineItem): void {
       console.error(`\n[Error] ${item.message}`);
       break;
 
+    case "irc_message": {
+      const recipient = item.recipient ? ` to ${item.recipient}` : "";
+      const replyTo = item.replyTo ? `, reply to ${item.replyTo}` : "";
+      console.log(
+        `\n[IRC ${item.deliveryState} from ${item.sender}${recipient}${replyTo}] ${item.body}`,
+      );
+      break;
+    }
     case "user_message":
       console.log(`\n[User] ${item.text}`);
       break;

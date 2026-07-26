@@ -2,7 +2,11 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Logger } from "pino";
 
 import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
-import { JsonlRpcProcess, type JsonlRpcLaunch } from "../jsonl-rpc-process.js";
+import {
+  JSONL_RPC_NO_TIMEOUT,
+  JsonlRpcProcess,
+  type JsonlRpcLaunch,
+} from "../jsonl-rpc-process.js";
 import {
   buildOmpLaunch,
   type OmpRuntime,
@@ -14,6 +18,7 @@ import {
   OmpBranchMessagesResultSchema,
   OmpBranchResultSchema,
   OmpCommandsResultSchema,
+  OmpCompactionResultSchema,
   OmpHostToolsResultSchema,
   OmpMessagesResultSchema,
   OmpModelSchema,
@@ -25,6 +30,7 @@ import {
   OmpSessionStatsSchema,
   type OmpThinkingLevel,
   type OmpAgentMessage,
+  type OmpCompactionResult,
   type OmpModel,
   type OmpPromptAck,
   type OmpRpcCommand,
@@ -40,6 +46,14 @@ import {
 
 const DEFAULT_OMP_COMMAND: [string, ...string[]] = [process.env.OMP_COMMAND ?? "omp"];
 const DEFAULT_COMMANDS_RPC_NAME = "get_available_commands";
+
+/**
+ * Compaction and handoff are blocking maintenance jobs. They finish only
+ * after OMP has persisted the resulting session state, so wait for a response,
+ * process failure, or session close rather than applying the control-plane
+ * deadline.
+ */
+const OMP_MAINTENANCE_REQUEST_TIMEOUT_MS = JSONL_RPC_NO_TIMEOUT;
 
 export interface OmpCliRuntimeOptions {
   logger: Logger;
@@ -124,11 +138,16 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
     return { requestId, ...ack };
   }
 
-  async compact(customInstructions?: string): Promise<void> {
-    await this.request({
-      type: "compact",
-      ...(customInstructions ? { customInstructions } : {}),
-    });
+  async compact(customInstructions?: string): Promise<OmpCompactionResult> {
+    return OmpCompactionResultSchema.parse(
+      await this.request(
+        {
+          type: "compact",
+          ...(customInstructions ? { customInstructions } : {}),
+        },
+        OMP_MAINTENANCE_REQUEST_TIMEOUT_MS,
+      ),
+    );
   }
 
   async setAutoCompaction(enabled: boolean): Promise<void> {
@@ -248,10 +267,13 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
   }
 
   async handoff(customInstructions?: string): Promise<void> {
-    await this.request({
-      type: "handoff",
-      ...(customInstructions ? { customInstructions } : {}),
-    });
+    await this.request(
+      {
+        type: "handoff",
+        ...(customInstructions ? { customInstructions } : {}),
+      },
+      OMP_MAINTENANCE_REQUEST_TIMEOUT_MS,
+    );
   }
 
   respondToExtensionUiRequest(
@@ -269,7 +291,7 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
     await this.process.close(new Error("OMP RPC session is closed"));
   }
 
-  private request(command: OmpRpcCommand, timeoutMs?: number): Promise<unknown> {
+  private request(command: OmpRpcCommand, timeoutMs?: number | null): Promise<unknown> {
     return this.process.request(OmpRpcCommandSchema.parse(command), timeoutMs);
   }
 

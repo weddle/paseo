@@ -17,6 +17,11 @@ export interface OmpCapturedUserMessageEntry {
 }
 
 export interface OmpHistoryMapperHooks {
+  mapUserMessage?: (
+    message: Extract<OmpAgentMessage, { role: "user" }>,
+    text: string,
+    provider: string,
+  ) => Extract<AgentStreamEvent, { type: "timeline" }> | null;
   mapCustomMessage?: (
     message: Extract<OmpAgentMessage, { role: "custom" }>,
     text: string,
@@ -97,6 +102,10 @@ export class OmpHistoryMapper {
 
   private mapUserMessage(message: Extract<OmpAgentMessage, { role: "user" }>): AgentStreamEvent[] {
     const text = getUserMessageText(message.content);
+    const mappedEvent = text ? this.hooks.mapUserMessage?.(message, text, this.provider) : null;
+    if (mappedEvent) {
+      return [mappedEvent];
+    }
     this.userIndex += 1;
     if (!text) {
       return [];

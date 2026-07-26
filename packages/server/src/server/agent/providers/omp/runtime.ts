@@ -1,5 +1,6 @@
 import type {
   OmpAgentMessage,
+  OmpCompactionResult,
   OmpModel,
   OmpPromptAck,
   OmpRpcHostToolDefinition,
@@ -47,7 +48,7 @@ export interface OmpRuntimeSession {
     message: string,
     images?: Array<{ type: "image"; data: string; mimeType: string }>,
   ): Promise<OmpPromptAck>;
-  compact(customInstructions?: string): Promise<void>;
+  compact(customInstructions?: string): Promise<OmpCompactionResult>;
   setAutoCompaction(enabled: boolean): Promise<void>;
   abort(): Promise<void>;
   getState(): Promise<OmpSessionState>;

@@ -40,6 +40,8 @@ import {
   type InlinePathTarget,
 } from "@/components/message";
 import { PlanCard } from "@/components/plan-card";
+import { IrcMessageCard } from "@/components/irc-message-card";
+import { SteerQueuedCard } from "@/components/steer-queued-card";
 import type { StreamItem } from "@/types/stream";
 import type { PendingPermission } from "@/types/shared";
 import type {
@@ -811,6 +813,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           case "user_message":
             return renderUserMessageItem(layoutItem, item);
 
+          case "steer_queued":
+            return (
+              <SteerQueuedCard
+                text={item.text}
+                timestamp={item.timestamp.getTime()}
+                deliveryState={item.deliveryState}
+              />
+            );
+
           case "assistant_message":
             return renderAssistantMessageItem(layoutItem, item);
 
@@ -827,6 +838,17 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 message={item.message}
                 timestamp={item.timestamp.getTime()}
                 metadata={item.metadata}
+              />
+            );
+
+          case "irc_message":
+            return (
+              <IrcMessageCard
+                sender={item.sender}
+                recipient={item.recipient}
+                replyTo={item.replyTo}
+                body={item.body}
+                deliveryState={item.deliveryState}
               />
             );
 

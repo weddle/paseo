@@ -236,6 +236,14 @@ second line'`,
       },
       { type: "error", message: "boom" },
       { type: "compaction", status: "completed", trigger: "auto" },
+      {
+        type: "irc_message",
+        sender: "CodexAppServerResearch",
+        recipient: "OmpIrcTimeline",
+        replyTo: "inbox-42",
+        body: "Use a typed timeline card instead of assistant Markdown.",
+        deliveryState: "delivered",
+      },
     ];
 
     const result = curateAgentActivity(timeline);
@@ -245,6 +253,9 @@ second line'`,
     expect(result).toContain("- [x] Two");
     expect(result).toContain("[Error] boom");
     expect(result).toContain("[Compacted]");
+    expect(result).toContain(
+      "[IRC delivered from CodexAppServerResearch to OmpIrcTimeline, reply to inbox-42] Use a typed timeline card instead of assistant Markdown.",
+    );
   });
 
   it("truncates to maxItems", () => {

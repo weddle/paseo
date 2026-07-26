@@ -93,6 +93,11 @@ export const ru: TranslationResources = {
       chooseSendBehavior: "Выберите способ отправки",
       send: "Отправлять",
     },
+    steerQueue: {
+      dispatching: "Направление ставится в очередь…",
+      queued: "Направление поставлено в очередь",
+      unconfirmed: "Доставка направления не подтверждена",
+    },
     cancel: {
       cancelingAgent: "Отменяющий агент",
       stopAgent: "Остановить агент",
@@ -137,6 +142,8 @@ export const ru: TranslationResources = {
       steerUnavailable:
         "Этот агент больше недоступен для направления. Выберите Очередь или Прервать.",
       steerUnknownError: "Агент не принял запрос на направление",
+      steerDeliveryUnconfirmed:
+        "Доставка направления не подтверждена. Запись останется помеченной как неподтверждённая, пока OMP не подтвердит её после переподключения.",
       failedToCreateAgent: "Не удалось создать агента.",
       noHostSelected: "Хост не выбран",
       initialPromptRequired: "Требуется начальное приглашение",

@@ -9,6 +9,7 @@ import type {
   OmpRpcHostToolResult,
   OmpRpcHostToolUpdate,
   OmpAgentMessage,
+  OmpCompactionResult,
   OmpModel,
   OmpPromptAck,
   OmpRpcSlashCommand,
@@ -128,7 +129,11 @@ export class FakeOmpSession implements OmpRuntimeSession {
   subagents: FakeOmpSubagentSnapshot[] = [];
   readonly subagentSubscriptionErrors = new Map<FakeOmpSubagentSubscriptionLevel, Error>();
   compactError: Error | null = null;
-  emitCompactEnd = true;
+  compactResult: OmpCompactionResult = {
+    summary: "Compacted context",
+    firstKeptEntryId: "omp-entry-1",
+    tokensBefore: 0,
+  };
   getStateError: Error | null = null;
   promptAck: OmpPromptAck = {};
   branchResponse: { text?: string; cancelled?: boolean } = { text: "" };
@@ -218,15 +223,12 @@ export class FakeOmpSession implements OmpRuntimeSession {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
-  async compact(customInstructions?: string): Promise<void> {
+  async compact(customInstructions?: string): Promise<OmpCompactionResult> {
     this.compactRequests.push(customInstructions === undefined ? {} : { customInstructions });
-    this.emit({ type: "compaction_start", reason: "manual" });
-    if (this.emitCompactEnd) {
-      this.emit({ type: "compaction_end", reason: "manual" });
-    }
     if (this.compactError) {
       throw this.compactError;
     }
+    return this.compactResult;
   }
 
   async setAutoCompaction(enabled: boolean): Promise<void> {

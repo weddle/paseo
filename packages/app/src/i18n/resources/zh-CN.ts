@@ -92,6 +92,11 @@ export const zhCN: TranslationResources = {
       chooseSendBehavior: "选择发送方式",
       send: "发送",
     },
+    steerQueue: {
+      dispatching: "正在将引导加入队列…",
+      queued: "引导已排队",
+      unconfirmed: "引导投递未确认",
+    },
     cancel: {
       cancelingAgent: "正在取消 Agent",
       stopAgent: "停止 Agent",
@@ -134,6 +139,8 @@ export const zhCN: TranslationResources = {
       failedToSteer: "无法引导 Agent：{{error}}。草稿仍保留在这里；请选择排队或中断，或重试。",
       steerUnavailable: "此 Agent 已无法引导。请改选排队或中断。",
       steerUnknownError: "Agent 未接受引导请求",
+      steerDeliveryUnconfirmed:
+        "引导投递尚未确认。重新连接后，在 OMP 确认前，此条目会一直标记为未确认。",
       failedToCreateAgent: "创建 Agent 失败",
       noHostSelected: "未选择 Host",
       initialPromptRequired: "初始 prompt 必填",

@@ -93,6 +93,11 @@ export const ja: TranslationResources = {
       chooseSendBehavior: "送信方法を選択",
       send: "送信",
     },
+    steerQueue: {
+      dispatching: "誘導をキューに追加中…",
+      queued: "誘導をキューに追加しました",
+      unconfirmed: "誘導の配信は未確認です",
+    },
     cancel: {
       cancelingAgent: "エージェントをキャンセル中",
       stopAgent: "エージェントを停止",
@@ -137,6 +142,8 @@ export const ja: TranslationResources = {
       steerUnavailable:
         "このエージェントはもう誘導できません。代わりにキューまたは中断を選択してください。",
       steerUnknownError: "エージェントは誘導リクエストを受け付けませんでした",
+      steerDeliveryUnconfirmed:
+        "誘導の配信は確認されていません。再接続後に OMP が確認するまで、この項目は未確認のまま表示されます。",
       failedToCreateAgent: "エージェントの作成に失敗しました",
       noHostSelected: "ホストが選択されていません",
       initialPromptRequired: "初期プロンプトが必要です",

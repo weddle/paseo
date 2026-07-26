@@ -1764,7 +1764,7 @@ export function Composer({
       setSendError(null);
       setIsSteering(true);
       try {
-        await dispatchComposerSteerMessage({
+        const result = await dispatchComposerSteerMessage({
           client,
           agentId: agentIdRef.current,
           expectedTurnId: activeForegroundTurnId,
@@ -1778,6 +1778,10 @@ export function Composer({
             setTail: (updater) => setAgentStreamTail(serverId, updater),
           },
         });
+        if (result.status === "unconfirmed") {
+          setSendError(t("composer.errors.steerDeliveryUnconfirmed"));
+          return;
+        }
         clearDraft("sent");
         setUserInput("");
         setSelectedAttachments([]);

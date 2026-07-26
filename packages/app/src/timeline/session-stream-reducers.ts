@@ -65,7 +65,7 @@ interface TimelineResponseEntry {
   sourceSeqRanges?: TimelineSeqRange[];
   collapsed?: string[];
   provider: string;
-  item: Record<string, unknown>;
+  item: unknown;
   timestamp: string;
 }
 
@@ -256,15 +256,26 @@ function applyTimelineReplacePath(args: {
   bootstrapPolicy: ReturnType<typeof deriveBootstrapTailTimelinePolicy>;
   currentTail: StreamItem[];
   currentHead: StreamItem[];
-  toHydratedEvents: (
-    units: TimelineUnit[],
-  ) => Array<{ event: AgentStreamEventPayload; timestamp: Date }>;
+  toHydratedEvents: (units: TimelineUnit[]) => Array<{
+    event: AgentStreamEventPayload;
+    timestamp: Date;
+    timelineCursor: { epoch: string; seq: number };
+  }>;
 }): TimelinePathResult {
   const { timelineUnits, payload, bootstrapPolicy, currentTail, currentHead, toHydratedEvents } =
     args;
-  const hydratedTail = hydrateStreamState(toHydratedEvents(timelineUnits), { source: "canonical" });
-  const reconciledTail = reconcileLocalUserPresentationAfterReplace({
+  const hydratedTail = toHydratedEvents(timelineUnits).reduce<StreamItem[]>(
+    (tail, { event, timestamp, timelineCursor }) =>
+      reduceStreamUpdate(tail, event, timestamp, { source: "canonical", timelineCursor }),
+    [],
+  );
+  const reconciledQueuedTail = reconcileQueuedSteersAfterReplace({
     canonicalTail: hydratedTail,
+    previousTail: currentTail,
+    previousHead: currentHead,
+  });
+  const reconciledTail = reconcileLocalUserPresentationAfterReplace({
+    canonicalTail: reconciledQueuedTail,
     previousTail: currentTail,
     previousHead: currentHead,
   });
@@ -411,6 +422,42 @@ function reconcileLocalUserPresentationAfterReplace(params: {
     nextTail.splice(insertionIndex < 0 ? nextTail.length : insertionIndex, 0, item);
   }
 
+  return nextTail;
+}
+
+function reconcileQueuedSteersAfterReplace(params: {
+  canonicalTail: StreamItem[];
+  previousTail: StreamItem[];
+  previousHead: StreamItem[];
+}): StreamItem[] {
+  const queuedSteers = [...params.previousTail, ...params.previousHead].filter(
+    (item): item is Extract<StreamItem, { kind: "steer_queued" }> => item.kind === "steer_queued",
+  );
+  if (queuedSteers.length === 0) {
+    return params.canonicalTail;
+  }
+
+  const claimedCanonicalIds = new Set<string>();
+  const nextTail = [...params.canonicalTail];
+  for (const queuedSteer of queuedSteers) {
+    const canonical = nextTail.find(
+      (item) =>
+        item.kind === "user_message" &&
+        !item.optimistic &&
+        !claimedCanonicalIds.has(item.id) &&
+        item.text === queuedSteer.text &&
+        item.timestamp.getTime() >= queuedSteer.timestamp.getTime(),
+    );
+    if (canonical) {
+      claimedCanonicalIds.add(canonical.id);
+      continue;
+    }
+
+    const insertionIndex = nextTail.findIndex(
+      (item) => item.timestamp.getTime() > queuedSteer.timestamp.getTime(),
+    );
+    nextTail.splice(insertionIndex < 0 ? nextTail.length : insertionIndex, 0, queuedSteer);
+  }
   return nextTail;
 }
 

@@ -156,6 +156,51 @@ describe("OMP history mapper", () => {
     ]);
   });
 
+  test("maps replayed IRC envelopes without consuming a user-message entry", async () => {
+    const envelope = [
+      "<irc>",
+      "Incoming IRC message from agent `CodexAppServerResearch`:",
+      "",
+      "Use a typed timeline card instead of assistant Markdown.",
+      "</irc>",
+    ].join("\n");
+
+    await expect(
+      collectHistory(
+        [
+          { role: "user", content: "first prompt" },
+          { role: "user", content: envelope },
+          { role: "user", content: "second prompt" },
+        ],
+        [
+          { id: "entry-user-1", text: "first prompt" },
+          { id: "entry-user-2", text: "second prompt" },
+        ],
+      ),
+    ).resolves.toEqual([
+      {
+        type: "timeline",
+        provider: "omp",
+        item: { type: "user_message", text: "first prompt", messageId: "entry-user-1" },
+      },
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "irc_message",
+          sender: "CodexAppServerResearch",
+          body: "Use a typed timeline card instead of assistant Markdown.",
+          deliveryState: "delivered",
+        },
+      },
+      {
+        type: "timeline",
+        provider: "omp",
+        item: { type: "user_message", text: "second prompt", messageId: "entry-user-2" },
+      },
+    ]);
+  });
+
   test("renders replayed OMP advisor messages as synthetic tool-call blocks", async () => {
     await expect(
       collectHistory([

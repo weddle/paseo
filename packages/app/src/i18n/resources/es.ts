@@ -93,6 +93,11 @@ export const es: TranslationResources = {
       chooseSendBehavior: "Elegir modo de envío",
       send: "Enviar",
     },
+    steerQueue: {
+      dispatching: "Encolando instrucción…",
+      queued: "Instrucción en cola",
+      unconfirmed: "Entrega de instrucción sin confirmar",
+    },
     cancel: {
       cancelingAgent: "Agente de cancelación",
       stopAgent: "detener agente",
@@ -136,6 +141,8 @@ export const es: TranslationResources = {
         "No se pudo guiar al agente: {{error}}. Tu borrador sigue aquí; elige Cola o Interrumpir, o inténtalo de nuevo.",
       steerUnavailable: "Este agente ya no está disponible para guiar. Elige Cola o Interrumpir.",
       steerUnknownError: "El agente no aceptó la solicitud para guiarlo",
+      steerDeliveryUnconfirmed:
+        "No se confirmó la entrega de la instrucción. La entrada seguirá marcada como sin confirmar hasta que OMP la confirme después de reconectar.",
       failedToCreateAgent: "No se pudo crear el agente",
       noHostSelected: "Ningún anfitrión seleccionado",
       initialPromptRequired: "Se requiere aviso inicial",

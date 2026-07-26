@@ -93,6 +93,11 @@ export const ptBR: TranslationResources = {
       chooseSendBehavior: "Escolher modo de envio",
       send: "Enviar",
     },
+    steerQueue: {
+      dispatching: "Enfileirando orientação…",
+      queued: "Orientação enfileirada",
+      unconfirmed: "Entrega da orientação não confirmada",
+    },
     cancel: {
       cancelingAgent: "Cancelando agente",
       stopAgent: "Parar agente",
@@ -137,6 +142,8 @@ export const ptBR: TranslationResources = {
       steerUnavailable:
         "Este agente não está mais disponível para orientação. Escolha Fila ou Interromper.",
       steerUnknownError: "O agente não aceitou a solicitação de orientação",
+      steerDeliveryUnconfirmed:
+        "A entrega da orientação não foi confirmada. A entrada continuará marcada como não confirmada até que o OMP a confirme após reconectar.",
       failedToCreateAgent: "Falha ao criar agente",
       noHostSelected: "Nenhum host selecionado",
       initialPromptRequired: "O prompt inicial é obrigatório",

@@ -14,8 +14,11 @@ import {
 } from "@/composer/attachments/submit";
 import {
   appendOptimisticUserMessageToStream,
+  appendSteerQueuedItemToStream,
   buildOptimisticUserMessage,
+  buildSteerQueuedItem,
   generateMessageId,
+  type SteerQueuedDeliveryState,
   type StreamItem,
   type UserMessageItem,
 } from "@/types/stream";
@@ -66,8 +69,16 @@ export interface ComposerSendClient {
   }>;
 }
 
+export type ComposerSteerDispatchReceipt =
+  | { status: "queued" }
+  | { status: "rejected"; error: string };
+
 export interface ComposerSteerClient {
-  steerAgent: (agentId: string, text: string, expectedTurnId: string) => Promise<void>;
+  steerAgent: (
+    agentId: string,
+    text: string,
+    expectedTurnId: string,
+  ) => Promise<void | ComposerSteerDispatchReceipt>;
 }
 
 export interface ComposerCancelClient {
@@ -208,29 +219,131 @@ export async function dispatchComposerAgentMessage(
   }
 }
 
+export type ComposerSteerDispatchResult =
+  | { status: "queued" }
+  | { status: "unconfirmed"; error: unknown };
+
+class ComposerSteerRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ComposerSteerRejectedError";
+  }
+}
+
 export async function dispatchComposerSteerMessage(input: {
   client: ComposerSteerClient;
   agentId: string;
   expectedTurnId: string;
   text: string;
   stream: AgentStreamWriter;
-}): Promise<void> {
-  const userMessage = buildOptimisticUserMessage({
+}): Promise<ComposerSteerDispatchResult> {
+  const queuedSteer = buildSteerQueuedItem({
     id: generateMessageId(),
     text: input.text,
     timestamp: new Date(),
+    deliveryState: "dispatching",
   });
-  const rollbackOptimisticMessage = appendUserMessageToStream(
-    input.agentId,
-    userMessage,
-    input.stream,
-  );
+  const appended = appendSteerQueuedItemToStream({
+    tail: input.stream.getTail(input.agentId) ?? [],
+    head: input.stream.getHead(input.agentId) ?? [],
+    message: queuedSteer,
+    placement: "active-head",
+  });
+  const write = appended.changedHead ? input.stream.setHead : input.stream.setTail;
+  const items = appended.changedHead ? appended.head : appended.tail;
+  write((prev) => new Map(prev).set(input.agentId, items));
+
   try {
-    await input.client.steerAgent(input.agentId, input.text, input.expectedTurnId);
+    const receipt = await input.client.steerAgent(input.agentId, input.text, input.expectedTurnId);
+    if (receipt?.status === "rejected") {
+      removeQueuedSteerFromStream({
+        agentId: input.agentId,
+        steerId: queuedSteer.id,
+        stream: input.stream,
+      });
+      throw new ComposerSteerRejectedError(receipt.error);
+    }
+    updateQueuedSteerDeliveryState({
+      agentId: input.agentId,
+      steerId: queuedSteer.id,
+      deliveryState: "queued",
+      stream: input.stream,
+    });
+    return { status: "queued" };
   } catch (error) {
-    rollbackOptimisticMessage();
-    throw error;
+    if (error instanceof ComposerSteerRejectedError) {
+      throw error;
+    }
+    // A dropped or timed-out transport can race with OMP accepting the steer.
+    // Keep the entry visible, but do not claim that it was queued.
+    updateQueuedSteerDeliveryState({
+      agentId: input.agentId,
+      steerId: queuedSteer.id,
+      deliveryState: "unconfirmed",
+      stream: input.stream,
+    });
+    return { status: "unconfirmed", error };
   }
+}
+
+function updateQueuedSteerDeliveryState(input: {
+  agentId: string;
+  steerId: string;
+  deliveryState: SteerQueuedDeliveryState;
+  stream: AgentStreamWriter;
+}): void {
+  updateQueuedSteerInCollections(input, (item) =>
+    item.deliveryState === input.deliveryState
+      ? item
+      : { ...item, deliveryState: input.deliveryState },
+  );
+}
+
+function removeQueuedSteerFromStream(input: {
+  agentId: string;
+  steerId: string;
+  stream: AgentStreamWriter;
+}): void {
+  updateQueuedSteerInCollections(input, () => null);
+}
+
+function updateQueuedSteerInCollections(
+  input: {
+    agentId: string;
+    steerId: string;
+    stream: AgentStreamWriter;
+  },
+  update: (
+    item: Extract<StreamItem, { kind: "steer_queued" }>,
+  ) => Extract<StreamItem, { kind: "steer_queued" }> | null,
+): void {
+  const apply = (items: StreamItem[] | undefined): StreamItem[] | undefined => {
+    if (!items) return items;
+    const index = items.findIndex(
+      (item) => item.kind === "steer_queued" && item.id === input.steerId,
+    );
+    if (index < 0) return items;
+    const current = items[index];
+    if (!current || current.kind !== "steer_queued") return items;
+    const next = update(current);
+    if (next === current) return items;
+    if (!next) {
+      return [...items.slice(0, index), ...items.slice(index + 1)];
+    }
+    const result = [...items];
+    result[index] = next;
+    return result;
+  };
+  const write = (set: AgentStreamWriter["setTail"] | AgentStreamWriter["setHead"]): void => {
+    set((prev) => {
+      const current = prev.get(input.agentId);
+      const next = apply(current);
+      if (next === current || next === undefined) return prev;
+      return new Map(prev).set(input.agentId, next);
+    });
+  };
+  write(input.stream.setTail);
+  write(input.stream.setHead);
 }
 
 function appendUserMessageToStream(

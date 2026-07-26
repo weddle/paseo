@@ -93,6 +93,11 @@ export const ar: TranslationResources = {
       chooseSendBehavior: "اختر سلوك الإرسال",
       send: "يرسل",
     },
+    steerQueue: {
+      dispatching: "جارٍ وضع التوجيه في قائمة الانتظار…",
+      queued: "التوجيه في قائمة الانتظار",
+      unconfirmed: "تسليم التوجيه غير مؤكد",
+    },
     cancel: {
       cancelingAgent: "وكيل الإلغاء",
       stopAgent: "توقف الوكيل",
@@ -137,6 +142,8 @@ export const ar: TranslationResources = {
       steerUnavailable:
         "لم يعد هذا الوكيل متاحًا للتوجيه. اختر قائمة الانتظار أو المقاطعة بدلاً من ذلك.",
       steerUnknownError: "لم يقبل الوكيل طلب التوجيه",
+      steerDeliveryUnconfirmed:
+        "لم يتم تأكيد تسليم التوجيه. سيبقى الإدخال مميزًا بأنه غير مؤكد حتى يؤكده OMP بعد إعادة الاتصال.",
       failedToCreateAgent: "فشل في إنشاء الوكيل",
       noHostSelected: "لم يتم تحديد مضيف",
       initialPromptRequired: "مطلوب موجه الأولي",

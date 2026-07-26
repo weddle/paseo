@@ -69,6 +69,7 @@ import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagen
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
 import { getUserMessageText } from "./message-history.js";
 import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
+import { mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
 import { materializeProviderImage } from "../provider-image-output.js";
 import { OmpCliRuntime } from "./cli-runtime.js";
 import { listOmpImportableSessions, readOmpImportSessionConfig } from "./session-descriptor.js";
@@ -1421,7 +1422,22 @@ export class OmpAgentSession implements AgentSession {
     this.outOfBandCompactionStarted = false;
     this.outOfBandCompactionCompleted = false;
     try {
-      await this.runtimeSession.compact(customInstructions);
+      const result = await this.runtimeSession.compact(customInstructions);
+      // Manual compact commands resolve with their persisted CompactionResult,
+      // but do not emit compaction_start/end frames. Treat that response as the
+      // completion signal instead of manufacturing lifecycle events.
+      if (this.outOfBandCompactionEmit === emit && !this.outOfBandCompactionCompleted) {
+        this.emitCompactionTimeline({
+          turnId: undefined,
+          item: {
+            type: "compaction",
+            status: "completed",
+            trigger: "manual",
+            ...(result.tokensBefore !== undefined ? { preTokens: result.tokensBefore } : {}),
+          },
+        });
+      }
+      await this.refreshAfterTurn(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (
@@ -1447,7 +1463,7 @@ export class OmpAgentSession implements AgentSession {
         },
       });
     } finally {
-      if (this.outOfBandCompactionEmit === emit && !this.outOfBandCompactionStarted) {
+      if (this.outOfBandCompactionEmit === emit) {
         this.outOfBandCompactionEmit = null;
         this.outOfBandCompactionStarted = false;
         this.outOfBandCompactionCompleted = false;
@@ -1846,9 +1862,6 @@ export class OmpAgentSession implements AgentSession {
         this.handleMessageStart(event);
         return;
       case "message_end":
-        if (event.message.role === "user") {
-          this.activeTurnHasUserMessage = true;
-        }
         this.handleMessageEnd(event, turnId);
         return;
       case "message_update":
@@ -2039,6 +2052,7 @@ export class OmpAgentSession implements AgentSession {
         const text = getUserMessageText(event.message.content);
         if (text) {
           const item =
+            mapOmpIrcEnvelopeToTimelineItem(text) ??
             mapOmpAdvisorMessageToToolCall(event.message, text) ??
             mapOmpSystemNoticeToToolCall(text);
           this.emit({
@@ -2060,6 +2074,7 @@ export class OmpAgentSession implements AgentSession {
     }
     const text = getUserMessageText(event.message.content);
     if (!text) {
+      this.activeTurnHasUserMessage = true;
       return;
     }
     const nativeMessage = event.message as OmpAgentMessage & { id?: unknown; entryId?: unknown };
@@ -2067,6 +2082,20 @@ export class OmpAgentSession implements AgentSession {
     if (messageId && this.emittedUserMessageIds.has(messageId)) {
       return;
     }
+    const ircMessage = mapOmpIrcEnvelopeToTimelineItem(text);
+    if (ircMessage) {
+      if (messageId) {
+        this.emittedUserMessageIds.add(messageId);
+      }
+      this.emit({
+        type: "timeline",
+        provider: this.provider,
+        turnId,
+        item: ircMessage,
+      });
+      return;
+    }
+    this.activeTurnHasUserMessage = true;
     const clientMessageId =
       this.activeClientMessageText === text ? this.activeClientMessageId : null;
     if (clientMessageId) {

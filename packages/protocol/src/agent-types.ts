@@ -338,6 +338,17 @@ export interface CompactionTimelineItem {
   preTokens?: number;
 }
 
+export type IrcMessageDeliveryState = "delivered" | "failed" | "unknown";
+
+export interface IrcMessageTimelineItem {
+  type: "irc_message";
+  sender: string;
+  recipient?: string;
+  replyTo?: string;
+  body: string;
+  deliveryState: IrcMessageDeliveryState;
+}
+
 export type AgentTimelineItem =
   | { type: "user_message"; text: string; messageId?: string; clientMessageId?: string }
   | { type: "assistant_message"; text: string; messageId?: string }
@@ -345,6 +356,7 @@ export type AgentTimelineItem =
   | ToolCallTimelineItem
   | { type: "todo"; items: { text: string; completed: boolean }[] }
   | { type: "error"; message: string }
+  | IrcMessageTimelineItem
   | CompactionTimelineItem;
 
 export type AgentStreamEvent =
