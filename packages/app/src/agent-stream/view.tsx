@@ -1,3 +1,4 @@
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
   forwardRef,
   memo,
@@ -17,7 +18,6 @@ import {
   Text,
   Pressable,
   Platform,
-  ActivityIndicator,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
@@ -249,6 +249,7 @@ export interface AgentStreamViewProps {
   historyPagination?: {
     hasOlder: boolean;
     isLoadingOlder: boolean;
+    progressKey: string | null;
     onLoadOlder: () => void;
   };
 }
@@ -390,10 +391,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       agentId,
       toast,
     });
-    const { isLoadingOlder, hasOlder, loadOlder } = historyPagination
+    const { isLoadingOlder, hasOlder, progressKey, loadOlder } = historyPagination
       ? {
           isLoadingOlder: historyPagination.isLoadingOlder,
           hasOlder: historyPagination.hasOlder,
+          progressKey: historyPagination.progressKey,
           loadOlder: historyPagination.onLoadOlder,
         }
       : agentHistoryPagination;
@@ -1051,6 +1053,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               onNearHistoryStart: loadOlder,
               isLoadingOlderHistory: isLoadingOlder,
               hasOlderHistory: hasOlder,
+              olderHistoryProgressKey: progressKey,
               scrollEnabled: streamScrollEnabled,
               listStyle: stylesheet.list,
               baseListContentContainerStyle: stylesheet.listContentContainer,
@@ -1160,6 +1163,7 @@ function historyPaginationPropsEqual(
   return (
     left?.hasOlder === right?.hasOlder &&
     left?.isLoadingOlder === right?.isLoadingOlder &&
+    left?.progressKey === right?.progressKey &&
     left?.onLoadOlder === right?.onLoadOlder
   );
 }
@@ -1216,7 +1220,7 @@ function ToolCallSlot({
   return <ToolCall {...rest} onInlineDetailsExpandedChange={handleExpandedChange} />;
 }
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
+const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedCheckIcon = withUnistyles(Check);
 const ThemedXIcon = withUnistyles(X);
 
@@ -1263,7 +1267,7 @@ function PermissionActionButton({
   return (
     <Pressable testID={testID} style={pressableStyle} onPress={handlePress} disabled={isResponding}>
       {isRespondingAction ? (
-        <ThemedActivityIndicator size="small" uniProps={colorMapping} />
+        <ThemedLoadingSpinner size="small" uniProps={colorMapping} />
       ) : (
         <View style={permissionStyles.optionContent}>
           <Icon size={14} uniProps={colorMapping} />
