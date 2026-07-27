@@ -112,7 +112,7 @@ export class OmpSubagentIndex {
       event: {
         type: "upsert",
         id,
-        title: formatOmpSubagentTitle(state.title, state.resolvedModel),
+        title: formatOmpSubagentTitle(state.title, state.resolvedModel, id),
         description: state.description,
         status,
         toolCallId: state.toolCallId,

@@ -22,7 +22,7 @@ describe("OMP provider subagent mapper", () => {
         event: {
           type: "upsert",
           id: "child-1",
-          title: "explore",
+          title: "child-1 · explore",
           description: "Inspect files",
           status: "running",
           toolCallId: "task-1",
@@ -46,7 +46,7 @@ describe("OMP provider subagent mapper", () => {
       event: {
         id: "child-1",
         status: "running",
-        title: "explore · gpt-5.5 (openai-codex)",
+        title: "child-1 · explore · gpt-5.5 (openai-codex)",
       },
     });
 
@@ -66,7 +66,7 @@ describe("OMP provider subagent mapper", () => {
       event: {
         id: "child-1",
         status: "completed",
-        title: "explore · claude-sonnet-5 (anthropic)",
+        title: "child-1 · explore · claude-sonnet-5 (anthropic)",
       },
     });
   });
@@ -215,6 +215,30 @@ describe("OMP provider subagent mapper", () => {
         },
       },
     });
+  });
+
+  // "From IrcPing" on an IRC card is only useful if a pane is labelled IrcPing.
+  test("leads the subagent title with the spawn name the parent assigned", () => {
+    const index = new OmpSubagentIndex();
+
+    expect(
+      index.handleLifecycle({}, { id: "IrcPing", agent: "scout", status: "started", index: 0 })[0],
+    ).toMatchObject({ event: { title: "IrcPing · scout" } });
+  });
+
+  test("omits a generated spawn id and a name that only repeats the agent type", () => {
+    const index = new OmpSubagentIndex();
+
+    expect(
+      index.handleLifecycle(
+        {},
+        { id: "153f4e8c7035685e", agent: "scout", status: "started", index: 0 },
+      )[0],
+    ).toMatchObject({ event: { title: "scout" } });
+
+    expect(
+      index.handleLifecycle({}, { id: "scout", agent: "scout", status: "started", index: 0 })[0],
+    ).toMatchObject({ event: { title: "scout" } });
   });
 
   test("maps aborted lifecycle status to canceled", () => {
