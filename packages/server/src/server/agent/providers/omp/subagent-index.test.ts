@@ -141,6 +141,47 @@ describe("OMP provider subagent mapper", () => {
     ]);
   });
 
+  // The observed failure: a parent's hub message lands in the child transcript as a plain
+  // user message with no <irc> wrapper, so the child pane rendered it as ordinary prose.
+  test("maps a parent steering message in a child transcript onto its timeline", () => {
+    const index = new OmpSubagentIndex();
+    const parent = {};
+
+    expect(
+      index.handleEvent(parent, {
+        id: "child-1",
+        event: {
+          type: "message_end",
+          message: {
+            role: "user",
+            content: [
+              "Your current interruptible wait was interrupted because an IRC message arrived from your parent agent `Main`.",
+              "",
+              "Parent IRC message:",
+              "",
+              "IrcPing, message IrcPong once.",
+            ].join("\n"),
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        type: "provider_subagent",
+        provider: "omp",
+        event: {
+          type: "timeline",
+          id: "child-1",
+          item: {
+            type: "irc_message",
+            sender: "Main",
+            body: "IrcPing, message IrcPong once.",
+            deliveryState: "delivered",
+          },
+        },
+      },
+    ]);
+  });
+
   test("maps aborted lifecycle status to canceled", () => {
     const index = new OmpSubagentIndex();
     const parent = {};

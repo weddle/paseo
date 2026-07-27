@@ -4,8 +4,21 @@ type OmpIrcMessageTimelineItem = Extract<AgentTimelineItem, { type: "irc_message
 
 const IRC_ENVELOPE_PATTERN = /^\s*<irc\b([^>]*)>([\s\S]*?)<\/irc>\s*$/i;
 const IRC_ATTRIBUTE_PATTERN = /([\w-]+)=["'“‘]([^"'“”‘’]*)["'”’]/g;
+// Mirrors packages/coding-agent/src/prompts/system/irc-incoming.md, whose header is
+// "Incoming IRC message from agent `{{from}}`{{#if replyTo}} (replying to {{replyTo}}){{/if}}:".
 const INCOMING_IRC_HEADER_PATTERN =
-  /^Incoming IRC message from agent\s+(`[^`]+`|[^:\n]+?)(?:\s+to(?:\s+agent)?\s+(`[^`]+`|[^:\n]+?))?(?:\s+(?:in reply to|replying to|reply to)\s+(`[^`]+`|[^:\n]+?))?\s*:?\s*$/i;
+  /^Incoming IRC message from agent\s+(`[^`]+`|[^\s:(]+)(?:\s*\((?:replying to|in reply to|reply to)\s+([^)]+)\))?(?:\s+to(?:\s+agent)?\s+(`[^`]+`|[^:\n]+?))?(?:\s+(?:in reply to|replying to|reply to)\s+(`[^`]+`|[^:\n]+?))?\s*:?\s*$/i;
+// Mirrors packages/coding-agent/src/prompts/steering/parent-irc.md. A parent's message to a
+// subagent arrives as plain prose with no <irc> wrapper, so it needs its own envelope.
+const PARENT_IRC_ENVELOPE_PATTERN =
+  /^\s*Your current interruptible wait was interrupted because an IRC message arrived from your parent agent\s+(`[^`]+`|\S+?)\.\s*\r?\n\s*Parent IRC message:\s*\r?\n([\s\S]+)$/i;
+// Trailing paragraphs the OMP harness appends to a delivered message. They describe the
+// transport, not the message, so they never belong in the rendered body.
+const IRC_HARNESS_TRAILERS = [
+  /^An agent sent this while you were waiting or working\./i,
+  /^If a response is expected, reply with the `hub` tool\b/i,
+  /^You are mid-task, so a side-channel auto-reply was generated\b/i,
+];
 
 function readAttributeMap(attributeText: string): Map<string, string> {
   const attributes = new Map<string, string>();
@@ -60,11 +73,42 @@ function readDeliveryState(value: string | null): OmpIrcMessageTimelineItem["del
   }
 }
 
+function stripHarnessTrailers(body: string): string {
+  const paragraphs = body.split(/\n\s*\n/);
+  while (paragraphs.length > 1) {
+    const last = paragraphs[paragraphs.length - 1]?.trim() ?? "";
+    if (!IRC_HARNESS_TRAILERS.some((pattern) => pattern.test(last))) {
+      break;
+    }
+    paragraphs.pop();
+  }
+  return paragraphs.join("\n\n").trim();
+}
+
+/** Parses the parent-to-subagent steering envelope, which carries no <irc> wrapper. */
+function mapParentSteeringEnvelope(text: string): OmpIrcMessageTimelineItem | null {
+  const parentEnvelope = text.match(PARENT_IRC_ENVELOPE_PATTERN);
+  if (!parentEnvelope) {
+    return null;
+  }
+  return {
+    type: "irc_message",
+    sender: normalizeIdentity(parentEnvelope[1]) ?? "Unknown sender",
+    body: stripHarnessTrailers((parentEnvelope[2] ?? "").trim()),
+    deliveryState: "delivered",
+  };
+}
+
 /**
- * Converts OMP's inbound IRC envelope into a timeline item. Returning null
+ * Converts OMP's inbound IRC envelopes into a timeline item. Returning null
  * leaves ordinary user/custom messages on their existing paths.
  */
 export function mapOmpIrcEnvelopeToTimelineItem(text: string): OmpIrcMessageTimelineItem | null {
+  const parentSteering = mapParentSteeringEnvelope(text);
+  if (parentSteering) {
+    return parentSteering;
+  }
+
   const envelope = text.match(IRC_ENVELOPE_PATTERN);
   if (!envelope) {
     return null;
@@ -75,7 +119,7 @@ export function mapOmpIrcEnvelopeToTimelineItem(text: string): OmpIrcMessageTime
   const lines = content.split(/\r?\n/);
   const header = lines[0]?.trim() ?? "";
   const headerMatch = INCOMING_IRC_HEADER_PATTERN.exec(header);
-  const body = headerMatch ? lines.slice(1).join("\n").trim() : content;
+  const body = stripHarnessTrailers(headerMatch ? lines.slice(1).join("\n").trim() : content);
 
   const sender =
     normalizeIdentity(readFirstAttribute(attributes, ["sender", "from", "agent"])) ??
@@ -83,10 +127,11 @@ export function mapOmpIrcEnvelopeToTimelineItem(text: string): OmpIrcMessageTime
     "Unknown sender";
   const recipient =
     normalizeIdentity(readFirstAttribute(attributes, ["recipient", "to", "target"])) ??
-    normalizeIdentity(headerMatch?.[2]);
+    normalizeIdentity(headerMatch?.[3]);
   const replyTo =
     normalizeIdentity(readFirstAttribute(attributes, ["reply-to", "replyto", "in-reply-to"])) ??
-    normalizeIdentity(headerMatch?.[3]);
+    normalizeIdentity(headerMatch?.[2]) ??
+    normalizeIdentity(headerMatch?.[4]);
 
   return {
     type: "irc_message",
