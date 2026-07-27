@@ -663,9 +663,11 @@ function mapYieldToolDetail(result: OmpToolResult): ToolCallDetail {
   const parsed = YieldToolDetailsSchema.safeParse(details);
   const status = parsed.success ? readNonEmptyString(parsed.data.status) : undefined;
   const text = parsed.success ? summarizeYieldData(parsed.data.data) : undefined;
+  // The canonical display puts `label` in the summary beside a "Yield" display name, so the
+  // label carries only the outcome — repeating the verb reads as "Yield · Yielded success".
   return {
     type: "plain_text",
-    label: status ? `Yielded ${status}` : "Yielded",
+    ...(status ? { label: status } : {}),
     ...(text ? { text } : {}),
   };
 }

@@ -150,7 +150,8 @@ describe("OMP structured tool details", () => {
       ),
     ).toEqual({
       type: "plain_text",
-      label: "Yielded success",
+      // Just the outcome: the row already reads "Yield" as its display name.
+      label: "success",
       text: "I ran.",
     });
   });
