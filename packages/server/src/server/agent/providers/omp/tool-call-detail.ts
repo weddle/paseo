@@ -615,7 +615,9 @@ function mapGlobToolDetail(args: GlobToolInput, result: OmpToolResult): ToolCall
   const facts = parsed.success ? parsed.data : {};
   return {
     type: "search",
-    query: facts.scopePath ?? args.path ?? "glob",
+    // The query is an input: it is the pattern the caller asked for. `scopePath` is the root the
+    // search ran under, which is only a useful label when the call was recorded without args.
+    query: args.path ?? facts.scopePath ?? "glob",
     toolName: "glob",
     ...(facts.files ? { filePaths: facts.files } : {}),
     ...(typeof facts.fileCount === "number" ? { numFiles: facts.fileCount } : {}),

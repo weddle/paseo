@@ -4,10 +4,10 @@ import { parseToolArgs, parseToolResult, readOmpEvalToolFacts } from "./tool-cal
 import { mapOmpToolDetail } from "./tool-call-mapper.js";
 
 describe("OMP structured tool details", () => {
-  test("maps glob details to a search card with its listed files", () => {
+  test("maps glob details to a search card labelled by the requested pattern", () => {
     expect(
       mapOmpToolDetail(
-        parseToolArgs("glob", { path: "src", gitignore: true, hidden: false, limit: 20 }),
+        parseToolArgs("glob", { path: "src/**/*.ts", gitignore: true, hidden: false, limit: 20 }),
         parseToolResult({
           content: [{ type: "text", text: "legacy output that must not become card content" }],
           details: {
@@ -21,12 +21,22 @@ describe("OMP structured tool details", () => {
       ),
     ).toEqual({
       type: "search",
-      query: ".",
+      // The pattern the caller asked for, not the root the search ran under.
+      query: "src/**/*.ts",
       toolName: "glob",
       filePaths: ["a/", "b/", "c.ts"],
       numFiles: 3,
       truncated: false,
     });
+  });
+
+  test("labels a glob recorded without args by the scope it searched", () => {
+    expect(
+      mapOmpToolDetail(
+        parseToolArgs("glob", null),
+        parseToolResult({ details: { scopePath: "packages", fileCount: 0, files: [] } }),
+      ),
+    ).toMatchObject({ type: "search", query: "packages" });
   });
 
   test("maps a single eval cell to shell detail and exposes its display facts", () => {
