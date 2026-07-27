@@ -68,7 +68,8 @@ function readReceipts(details: Record<string, unknown>): OmpHubDelivery[] {
     if (!agent || !state) {
       continue;
     }
-    const reason = readString(entry.error);
+    // The structured error carries the same TUI remediation hint the rendered text does.
+    const reason = readString(entry.error)?.split(HUB_DELIVERY_HINT_SEPARATOR)[0]?.trim();
     deliveries.push({ agent, state, ...(reason ? { reason } : {}) });
   }
   return deliveries;

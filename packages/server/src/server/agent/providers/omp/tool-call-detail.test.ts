@@ -70,8 +70,10 @@ describe("OMP structured tool details", () => {
       command: "eval",
       output: "No evaluation cell was returned.",
     });
-    expect(readOmpEvalToolFacts(args, details)).toEqual({});
-    expect(readOmpEvalToolFacts(args, undefined)).toEqual({});
+    // No cell means no title, but the language still keeps the row labelled as an eval rather
+    // than falling through to the generic shell card its detail is shaped like.
+    expect(readOmpEvalToolFacts(args, details)).toEqual({ evalLanguage: "python" });
+    expect(readOmpEvalToolFacts(args, undefined)).toEqual({ evalLanguage: "python" });
   });
 
   test("marks an errored eval cell as a failed shell result", () => {

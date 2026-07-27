@@ -706,20 +706,15 @@ export function readOmpEvalToolFacts(
 ): { evalLanguage?: string; evalTitle?: string } {
   const parsedArgs = EvalToolInputSchema.safeParse(args ?? {});
   const parsedDetails = EvalToolDetailsSchema.safeParse(details);
-  if (!parsedArgs.success || !parsedDetails.success) {
-    return {};
-  }
-
-  const cell = parsedDetails.data.cells?.[0];
-  if (!cell) {
-    return {};
-  }
-
+  const detailData = parsedDetails.success ? parsedDetails.data : undefined;
+  // A call that produced no cells still knows its language, and reporting it keeps the row an
+  // eval rather than degrading to the generic shell card the detail is shaped like.
+  const cell = detailData?.cells?.[0];
   const language =
-    readNonEmptyString(cell.language) ??
-    readNonEmptyString(parsedDetails.data.language) ??
-    readNonEmptyString(parsedArgs.data.language);
-  const title = readNonEmptyString(cell.title);
+    readNonEmptyString(cell?.language) ??
+    readNonEmptyString(detailData?.language) ??
+    (parsedArgs.success ? readNonEmptyString(parsedArgs.data.language) : undefined);
+  const title = readNonEmptyString(cell?.title);
   return {
     ...(language ? { evalLanguage: language } : {}),
     ...(title ? { evalTitle: title } : {}),

@@ -20,11 +20,19 @@ describe("OMP hub tool facts", () => {
     });
   });
 
-  test("carries a receipt error as the delivery reason", () => {
+  // Verbatim receipt error from a live send to a nonexistent agent. OMP appends a remediation
+  // hint naming TUI commands a Paseo user cannot run; the row keeps only the first clause.
+  test("carries a receipt error as the delivery reason, without OMP's TUI hint", () => {
     expect(
       readOmpHubToolFacts({ op: "send", to: "GhostAgent" }, undefined, {
         op: "send",
-        receipts: [{ to: "GhostAgent", outcome: "failed", error: 'Unknown agent "GhostAgent"' }],
+        receipts: [
+          {
+            to: "GhostAgent",
+            outcome: "failed",
+            error: 'Unknown agent "GhostAgent" — check `irc list` for live peers.',
+          },
+        ],
       }).deliveries,
     ).toEqual([{ agent: "GhostAgent", state: "failed", reason: 'Unknown agent "GhostAgent"' }]);
   });

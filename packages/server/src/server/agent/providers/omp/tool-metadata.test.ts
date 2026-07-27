@@ -47,13 +47,13 @@ describe("OMP tool metadata", () => {
     });
   });
 
-  test("contributes nothing for an eval call that produced no cells", () => {
+  test("still reports the language for an eval call that produced no cells", () => {
     expect(
-      buildOmpToolMetadata({ toolName: "eval", args: {} }, undefined, {
+      buildOmpToolMetadata({ toolName: "eval", args: { language: "py" } }, undefined, {
         language: "python",
         cells: [],
       }),
-    ).toEqual({});
+    ).toEqual({ metadata: { evalLanguage: "python" } });
   });
 });
 
