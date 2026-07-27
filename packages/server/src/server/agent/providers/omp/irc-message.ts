@@ -9,15 +9,18 @@ const IRC_ATTRIBUTE_PATTERN = /([\w-]+)=["'“‘]([^"'“”‘’]*)["'”’]
 const INCOMING_IRC_HEADER_PATTERN =
   /^Incoming IRC message from agent\s+(`[^`]+`|[^\s:(]+)(?:\s*\((?:replying to|in reply to|reply to)\s+([^)]+)\))?(?:\s+to(?:\s+agent)?\s+(`[^`]+`|[^:\n]+?))?(?:\s+(?:in reply to|replying to|reply to)\s+(`[^`]+`|[^:\n]+?))?\s*:?\s*$/i;
 // Mirrors packages/coding-agent/src/prompts/steering/parent-irc.md. A parent's message to a
-// subagent arrives as plain prose with no <irc> wrapper, so it needs its own envelope.
-const PARENT_IRC_ENVELOPE_PATTERN =
-  /^\s*Your current interruptible wait was interrupted because an IRC message arrived from your parent agent\s+(`[^`]+`|\S+?)\.\s*\r?\n\s*Parent IRC message:\s*\r?\n([\s\S]+)$/i;
-// Trailing paragraphs the OMP harness appends to a delivered message. They describe the
-// transport, not the message, so they never belong in the rendered body.
+// subagent arrives as plain prose with no <irc> wrapper, so the short structural label is the
+// only reliable anchor — deliberately not the surrounding sentence, which is free to be reworded.
+const PARENT_IRC_LABEL_PATTERN = /^Parent IRC message:[ \t]*$/m;
+const PARENT_IRC_SENDER_PATTERN = /parent agent\s+(`[^`]+`|[^\s.,;:]+)/i;
+// Trailing paragraphs the OMP harness appends to describe the transport rather than the message.
+// These track prose that upstream may reword; each pattern is anchored at a paragraph start and
+// only ever drops trailing paragraphs, so a wording change degrades to showing the extra text
+// rather than eating a real message.
 const IRC_HARNESS_TRAILERS = [
-  /^An agent sent this while you were waiting or working\./i,
+  /^An agent sent this while you were/i,
   /^If a response is expected, reply with the `hub` tool\b/i,
-  /^You are mid-task, so a side-channel auto-reply was generated\b/i,
+  /^You are mid-task, so a side-channel auto-reply\b/i,
 ];
 // A `hub` wait/inbox call returns delivered messages as its tool result rather than injecting
 // them, so this is the shape an agent sees whenever it deliberately waits instead of being
@@ -90,16 +93,25 @@ function stripHarnessTrailers(body: string): string {
   return paragraphs.join("\n\n").trim();
 }
 
-/** Parses the parent-to-subagent steering envelope, which carries no <irc> wrapper. */
+/**
+ * Parses the parent-to-subagent steering envelope, which carries no <irc> wrapper. Anchoring on
+ * the label alone keeps this working if upstream rewords the sentence around it; an unrecognized
+ * attribution degrades to a generic sender rather than dropping the message.
+ */
 function mapParentSteeringEnvelope(text: string): OmpIrcMessageTimelineItem | null {
-  const parentEnvelope = text.match(PARENT_IRC_ENVELOPE_PATTERN);
-  if (!parentEnvelope) {
+  const label = PARENT_IRC_LABEL_PATTERN.exec(text);
+  if (!label) {
     return null;
   }
+  const body = stripHarnessTrailers(text.slice(label.index + label[0].length).trim());
+  if (!body) {
+    return null;
+  }
+  const attribution = PARENT_IRC_SENDER_PATTERN.exec(text.slice(0, label.index));
   return {
     type: "irc_message",
-    sender: normalizeIdentity(parentEnvelope[1]) ?? "Unknown sender",
-    body: stripHarnessTrailers((parentEnvelope[2] ?? "").trim()),
+    sender: normalizeIdentity(attribution?.[1]) ?? "Parent agent",
+    body,
     deliveryState: "delivered",
   };
 }

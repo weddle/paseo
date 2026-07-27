@@ -96,6 +96,28 @@ describe("OMP IRC envelope mapper", () => {
       mapOmpIrcEnvelopeToTimelineItem("Please summarize what the parent agent `Main` asked for."),
     ).toBeNull();
   });
+
+  // Upstream owns this prose and may reword it. Only the label is load-bearing; a reworded
+  // sentence must still card, and an unrecognized attribution must degrade, not drop.
+  test("still cards a parent message when the sentence around the label is reworded", () => {
+    expect(
+      mapOmpIrcEnvelopeToTimelineItem(
+        [
+          "A message came in from your parent agent `Main` while you waited.",
+          "",
+          "Parent IRC message:",
+          "",
+          "Carry on.",
+        ].join("\n"),
+      ),
+    ).toMatchObject({ sender: "Main", body: "Carry on." });
+
+    expect(
+      mapOmpIrcEnvelopeToTimelineItem(
+        ["Something entirely new.", "", "Parent IRC message:", "", "Carry on."].join("\n"),
+      ),
+    ).toMatchObject({ sender: "Parent agent", body: "Carry on." });
+  });
 });
 
 // Strings below are verbatim `hub` tool results captured from a live OMP session.
