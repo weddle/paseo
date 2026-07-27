@@ -102,6 +102,45 @@ describe("OMP provider subagent mapper", () => {
     ]);
   });
 
+  test("maps IRC envelopes from a child assistant message onto its timeline", () => {
+    const index = new OmpSubagentIndex();
+    const parent = {};
+
+    expect(
+      index.handleEvent(parent, {
+        id: "child-1",
+        event: {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: '<irc sender="reviewer" recipient="child-1">Check the reducer.</irc>',
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        type: "provider_subagent",
+        provider: "omp",
+        event: {
+          type: "timeline",
+          id: "child-1",
+          item: {
+            type: "irc_message",
+            sender: "reviewer",
+            recipient: "child-1",
+            body: "Check the reducer.",
+            deliveryState: "delivered",
+          },
+        },
+      },
+    ]);
+  });
+
   test("maps aborted lifecycle status to canceled", () => {
     const index = new OmpSubagentIndex();
     const parent = {};

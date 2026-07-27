@@ -11,6 +11,10 @@ export const OMP_HISTORY_MAPPER_HOOKS: OmpHistoryMapperHooks = {
     const item = mapOmpIrcEnvelopeToTimelineItem(text);
     return item ? { type: "timeline", provider, item } : null;
   },
+  mapAssistantMessage: (_message, text, provider) => {
+    const item = mapOmpIrcEnvelopeToTimelineItem(text);
+    return item ? { type: "timeline", provider, item } : null;
+  },
   mapCustomMessage: (message, text, provider) => {
     const item =
       mapOmpIrcEnvelopeToTimelineItem(text) ??

@@ -38,6 +38,24 @@ describe("shared tool-call display mapping", () => {
     });
   });
 
+  it("labels Hub tool calls as agent coordination", () => {
+    const display = buildToolCallDisplayModel({
+      name: "hub",
+      status: "completed",
+      error: null,
+      detail: {
+        type: "unknown",
+        input: { op: "send" },
+        output: null,
+      },
+    });
+
+    expect(display).toEqual({
+      displayName: "Agent coordination",
+      summary: "Send agent message",
+    });
+  });
+
   it("uses sub-agent detail for task label and description", () => {
     const display = buildToolCallDisplayModel({
       name: "task",

@@ -22,6 +22,11 @@ export interface OmpHistoryMapperHooks {
     text: string,
     provider: string,
   ) => Extract<AgentStreamEvent, { type: "timeline" }> | null;
+  mapAssistantMessage?: (
+    message: Extract<OmpAgentMessage, { role: "assistant" }>,
+    text: string,
+    provider: string,
+  ) => Extract<AgentStreamEvent, { type: "timeline" }> | null;
   mapCustomMessage?: (
     message: Extract<OmpAgentMessage, { role: "custom" }>,
     text: string,
@@ -155,6 +160,11 @@ export class OmpHistoryMapper {
       message.responseId || `${this.provider}-history-assistant-${this.assistantIndex}`;
     for (const content of message.content) {
       if (content.type === "text" && content.text) {
+        const mappedEvent = this.hooks.mapAssistantMessage?.(message, content.text, this.provider);
+        if (mappedEvent) {
+          events.push(mappedEvent);
+          continue;
+        }
         events.push({
           type: "timeline",
           provider: this.provider,

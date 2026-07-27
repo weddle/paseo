@@ -127,6 +127,26 @@ function buildCanonicalDetailDisplay(input: ToolCallDisplayInput): DetailDisplay
   }
 }
 
+function hubOperationSummary(input: ToolCallDisplayInput): string | undefined {
+  if (input.detail.type !== "unknown" || !isRecord(input.detail.input)) {
+    return undefined;
+  }
+  switch (input.detail.input.op) {
+    case "send":
+      return "Send agent message";
+    case "wait":
+      return "Wait for agent activity";
+    case "list":
+      return "List agents";
+    case "jobs":
+      return "Check agent jobs";
+    case "cancel":
+      return "Cancel agent work";
+    default:
+      return undefined;
+  }
+}
+
 function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay {
   const lowerName = input.name.trim().toLowerCase();
   if (input.detail.type === "unknown" && lowerName === "task") {
@@ -144,6 +164,12 @@ function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay 
     return {
       displayName: "Terminal",
       summary: input.detail.type === "plain_text" ? readString(input.detail.label) : undefined,
+    };
+  }
+  if (lowerName === "hub") {
+    return {
+      displayName: "Agent coordination",
+      summary: hubOperationSummary(input),
     };
   }
   return {};
