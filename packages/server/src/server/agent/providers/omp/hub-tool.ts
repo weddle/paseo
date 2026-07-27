@@ -6,6 +6,10 @@ import type { ToolCallDetail } from "../../agent-sdk-types.js";
  * time, so it is carried through as a string rather than narrowed to an enum here.
  */
 const HUB_DELIVERY_LINE_PATTERN = /^-\s+([\w.-]+):\s+([\w-]+)(?:\s*[—–-]\s*(.+))?$/;
+// OMP appends its own remediation hint after a dash — "Unknown agent \"X\" — check `irc list`".
+// That hint names TUI commands a Paseo user cannot run, so the row keeps only the first clause;
+// the untouched result stays visible in the expanded output.
+const HUB_DELIVERY_HINT_SEPARATOR = /\s+[—–]\s+/;
 
 export interface OmpHubDelivery {
   agent: string;
@@ -39,7 +43,7 @@ function readDeliveries(resultText: string | undefined): OmpHubDelivery[] {
     if (!agent || !state) {
       continue;
     }
-    const reason = match[3]?.trim();
+    const reason = match[3]?.split(HUB_DELIVERY_HINT_SEPARATOR)[0]?.trim();
     deliveries.push({ agent, state, ...(reason ? { reason } : {}) });
   }
   return deliveries;
