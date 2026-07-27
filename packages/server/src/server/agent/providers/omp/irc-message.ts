@@ -3,7 +3,14 @@ import type { OmpAgentMessage } from "./rpc-types.js";
 
 type OmpIrcMessageTimelineItem = Extract<AgentTimelineItem, { type: "irc_message" }>;
 
-type OmpSteeringMessage = Pick<OmpAgentMessage, "steering" | "attribution">;
+/**
+ * The fields an inbound IRC message can carry structurally. `steering`/`attribution` mark a
+ * parent injection; `customType`/`details` mark a peer interrupt OMP already parsed for us.
+ */
+type OmpSteeringMessage = Pick<OmpAgentMessage, "steering" | "attribution"> & {
+  customType?: string;
+  details?: unknown;
+};
 
 const IRC_ENVELOPE_PATTERN = /^\s*<irc\b([^>]*)>([\s\S]*?)<\/irc>\s*$/i;
 const IRC_ATTRIBUTE_PATTERN = /([\w-]+)=["'“‘]([^"'“”‘’]*)["'”’]/g;
@@ -135,18 +142,35 @@ function readParentSteering(
 }
 
 /**
- * Converts OMP's inbound IRC envelopes into a timeline item. Returning null
- * leaves ordinary user/custom messages on their existing paths.
+ * Builds a card from a peer interrupt OMP already parsed. A `custom_message` entry of type
+ * `irc:incoming` carries `{ id, from, message, replyTo }`, where `message` is the clean body —
+ * it never contains the harness transport paragraphs the `<irc>` envelope wraps around it, so
+ * no trailer stripping is needed on this path.
  */
-export function mapOmpIrcEnvelopeToTimelineItem(
-  text: string,
-  message?: OmpSteeringMessage,
-): OmpIrcMessageTimelineItem | null {
-  const parentSteering = readParentSteering(text, message);
-  if (parentSteering) {
-    return parentSteering;
+function mapIncomingIrcDetails(details: unknown): OmpIrcMessageTimelineItem | null {
+  if (!isRecord(details)) {
+    return null;
   }
+  const sender = normalizeIdentity(typeof details.from === "string" ? details.from : null);
+  const body = typeof details.message === "string" ? details.message.trim() : "";
+  if (!sender || !body) {
+    return null;
+  }
+  const replyTo = normalizeIdentity(typeof details.replyTo === "string" ? details.replyTo : null);
+  return {
+    type: "irc_message",
+    sender,
+    ...(replyTo ? { replyTo } : {}),
+    body,
+    deliveryState: "delivered",
+  };
+}
 
+/**
+ * Parses a rendered `<irc>` envelope. Used when OMP sends no structured record for the message,
+ * which is the case for envelopes embedded in ordinary user and assistant content.
+ */
+function mapIrcEnvelope(text: string): OmpIrcMessageTimelineItem | null {
   const envelope = text.match(IRC_ENVELOPE_PATTERN);
   if (!envelope) {
     return null;
@@ -181,6 +205,19 @@ export function mapOmpIrcEnvelopeToTimelineItem(
       readFirstAttribute(attributes, ["delivery-state", "deliverystate", "delivery"]),
     ),
   };
+}
+
+/**
+ * Converts an inbound IRC message into a timeline item, preferring whatever OMP already parsed
+ * for us. Returning null leaves ordinary user/custom messages on their existing paths.
+ */
+export function mapOmpIrcEnvelopeToTimelineItem(
+  text: string,
+  message?: OmpSteeringMessage,
+): OmpIrcMessageTimelineItem | null {
+  const incoming =
+    message?.customType === "irc:incoming" ? mapIncomingIrcDetails(message.details) : null;
+  return incoming ?? readParentSteering(text, message) ?? mapIrcEnvelope(text);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

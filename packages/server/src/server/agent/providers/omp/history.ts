@@ -3,7 +3,7 @@ import { basename, extname, join } from "node:path";
 import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
 import { normalizeProviderReplayTimestamp } from "../../provider-history-timestamps.js";
 import { OmpHistoryMapper, type OmpCapturedUserMessageEntry } from "./message-history.js";
-import type { OmpAgentMessage } from "./rpc-types.js";
+import { OmpAgentMessageSchema, type OmpAgentMessage } from "./rpc-types.js";
 import type { OmpRuntimeSession } from "./runtime.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { formatOmpSubagentTitle } from "./subagent-title.js";
@@ -330,6 +330,20 @@ function mapEntryMessage(entry: OmpSessionEntry): OmpAgentMessage | null {
       return message as unknown as OmpAgentMessage;
     }
     return visibleFallback(message.role, message);
+  }
+  // OMP records a peer interrupt as a top-level `custom_message` entry rather than a roled
+  // message. Without this it reaches visibleFallback and renders as the literal text
+  // "[custom_message] <irc>…</irc>" instead of an IRC card. Its `details` are preserved so the
+  // IRC mapper can read the parsed sender and body rather than re-parsing the envelope.
+  if (entry.type === "custom_message" && typeof entry.content === "string") {
+    return OmpAgentMessageSchema.parse({
+      role: "custom",
+      content: entry.content,
+      ...(typeof entry.customType === "string" ? { customType: entry.customType } : {}),
+      ...(typeof entry.attribution === "string" ? { attribution: entry.attribution } : {}),
+      ...(entry.details !== undefined ? { details: entry.details } : {}),
+      ...(typeof entry.display === "boolean" ? { display: entry.display } : {}),
+    });
   }
   if (!entry.type || isControlEntryType(entry.type)) {
     return null;

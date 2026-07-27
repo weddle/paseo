@@ -48,6 +48,10 @@ const OmpCustomMessageSchema = z
     content: z.union([z.string(), z.array(z.union([OmpTextContentSchema, OmpImageContentSchema]))]),
     steering: z.boolean().optional(),
     attribution: z.string().optional(),
+    // A peer IRC interrupt arrives as customType "irc:incoming" with the parsed message in
+    // `details`; the string content is the rendered <irc> envelope of the same thing.
+    customType: z.string().optional(),
+    details: z.unknown().optional(),
   })
   .passthrough();
 const OmpAssistantMessageSchema = z

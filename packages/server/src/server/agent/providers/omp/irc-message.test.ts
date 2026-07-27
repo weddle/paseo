@@ -134,6 +134,63 @@ describe("OMP IRC envelope mapper", () => {
   });
 });
 
+// Verbatim `custom_message` entry of type `irc:incoming` captured from a live OMP session.
+describe("OMP peer interrupt, from structured details", () => {
+  const content = [
+    "<irc>",
+    "Incoming IRC message from agent `IrcPing` (replying to 154065b77ac893ab):",
+    "",
+    "Acknowledged your instruction.",
+    "",
+    "My agent name is IrcPing.",
+    "",
+    "An agent sent this while you were waiting or working. Any active interruptible wait was stopped early so you can read it now.",
+    "",
+    'If a response is expected, reply with the `hub` tool (`op: "send"`, `to: "IrcPing"`) — you may finish your current step first. Nobody replies on your behalf.',
+    "</irc>",
+  ].join("\n");
+  const details = {
+    id: "154065ba918893af",
+    from: "IrcPing",
+    message: "Acknowledged your instruction.\n\nMy agent name is IrcPing.",
+    replyTo: "154065b77ac893ab",
+  };
+
+  test("cards the interrupt from the parsed record, not the envelope", () => {
+    expect(
+      mapOmpIrcEnvelopeToTimelineItem(content, {
+        customType: "irc:incoming",
+        attribution: "agent",
+        details,
+      }),
+    ).toEqual({
+      type: "irc_message",
+      sender: "IrcPing",
+      replyTo: "154065b77ac893ab",
+      body: "Acknowledged your instruction.\n\nMy agent name is IrcPing.",
+      deliveryState: "delivered",
+    });
+  });
+
+  test("falls back to the envelope when the record carries no details", () => {
+    expect(
+      mapOmpIrcEnvelopeToTimelineItem(content, {
+        customType: "irc:incoming",
+        attribution: "agent",
+      }),
+    ).toMatchObject({ sender: "IrcPing", body: details.message });
+  });
+
+  test("does not treat a peer interrupt as parent steering", () => {
+    const item = mapOmpIrcEnvelopeToTimelineItem(content, {
+      customType: "irc:incoming",
+      attribution: "agent",
+      details,
+    });
+    expect(item?.sender).not.toBe("Parent agent");
+  });
+});
+
 // `details` payloads below are verbatim structured `hub` results captured from a live OMP session.
 describe("OMP hub delivered-message mapper, from structured details", () => {
   test("maps a waited-for reply from the record rather than the rendered line", () => {
