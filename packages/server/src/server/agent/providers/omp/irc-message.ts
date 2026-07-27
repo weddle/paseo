@@ -19,6 +19,11 @@ const IRC_HARNESS_TRAILERS = [
   /^If a response is expected, reply with the `hub` tool\b/i,
   /^You are mid-task, so a side-channel auto-reply was generated\b/i,
 ];
+// A `hub` wait/inbox call returns delivered messages as its tool result rather than injecting
+// them, so this is the shape an agent sees whenever it deliberately waits instead of being
+// interrupted: "[<id>] <sender> (reply to <id>): <body>", body running to the next such line.
+const HUB_DELIVERED_MESSAGE_PATTERN =
+  /^\[([0-9a-z_-]{4,})\]\s+([\w.-]+)(?:\s+\(reply to\s+([^)]+)\))?:\s?(.*)$/i;
 
 function readAttributeMap(attributeText: string): Map<string, string> {
   const attributes = new Map<string, string>();
@@ -143,4 +148,39 @@ export function mapOmpIrcEnvelopeToTimelineItem(text: string): OmpIrcMessageTime
       readFirstAttribute(attributes, ["delivery-state", "deliverystate", "delivery"]),
     ),
   };
+}
+
+/**
+ * Extracts the messages a `hub` wait/inbox result delivered. Non-message results — send
+ * receipts, job snapshots, elided waits — yield nothing and keep their ordinary tool card.
+ */
+export function mapOmpHubDeliveredMessages(text: string): OmpIrcMessageTimelineItem[] {
+  const parsed: Array<{ item: OmpIrcMessageTimelineItem; bodyLines: string[] }> = [];
+
+  for (const line of text.split(/\r?\n/)) {
+    const header = HUB_DELIVERED_MESSAGE_PATTERN.exec(line);
+    if (header) {
+      parsed.push({
+        item: {
+          type: "irc_message",
+          sender: normalizeIdentity(header[2]) ?? "Unknown sender",
+          ...(header[3]?.trim() ? { replyTo: header[3].trim() } : {}),
+          body: "",
+          deliveryState: "delivered",
+        },
+        bodyLines: [header[4] ?? ""],
+      });
+      continue;
+    }
+    parsed[parsed.length - 1]?.bodyLines.push(line);
+  }
+
+  const messages: OmpIrcMessageTimelineItem[] = [];
+  for (const { item, bodyLines } of parsed) {
+    item.body = stripHarnessTrailers(bodyLines.join("\n").trim());
+    if (item.body) {
+      messages.push(item);
+    }
+  }
+  return messages;
 }

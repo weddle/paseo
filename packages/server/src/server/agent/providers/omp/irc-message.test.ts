@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
+import { mapOmpHubDeliveredMessages, mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
 
 describe("OMP IRC envelope mapper", () => {
   test("maps an inbound IRC envelope into its delivery-aware timeline item", () => {
@@ -95,5 +95,51 @@ describe("OMP IRC envelope mapper", () => {
     expect(
       mapOmpIrcEnvelopeToTimelineItem("Please summarize what the parent agent `Main` asked for."),
     ).toBeNull();
+  });
+});
+
+// Strings below are verbatim `hub` tool results captured from a live OMP session.
+describe("OMP hub delivered-message mapper", () => {
+  test("maps a waited-for reply, keeping its reply target and multi-paragraph body", () => {
+    expect(
+      mapOmpHubDeliveredMessages(
+        [
+          "[15403b188a347de7] IrcPong (reply to 15403b1659347de6): Acknowledged your instruction and confirm I am the pong pane.",
+          "",
+          "IrcPong",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        type: "irc_message",
+        sender: "IrcPong",
+        replyTo: "15403b1659347de6",
+        body: "Acknowledged your instruction and confirm I am the pong pane.\n\nIrcPong",
+        deliveryState: "delivered",
+      },
+    ]);
+  });
+
+  test("maps every message in a batched inbox result", () => {
+    expect(
+      mapOmpHubDeliveredMessages(
+        [
+          "[15403b0f67347de3] IrcPong: README title: Context",
+          "[15403b1193f47de4] IrcPing: README title: Context",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      expect.objectContaining({ sender: "IrcPong", body: "README title: Context" }),
+      expect.objectContaining({ sender: "IrcPing", body: "README title: Context" }),
+    ]);
+  });
+
+  test.each([
+    ["an elided wait", "[Uneventful result elided]"],
+    ["a send receipt", "Delivered to 1 peer(s):\n- IrcPing: injected"],
+    ["a job snapshot", "## Completed (1)\n\n### IrcPong [task] — completed\nLabel: IrcPong"],
+    ["an empty result", ""],
+  ])("yields nothing for %s", (_label, result) => {
+    expect(mapOmpHubDeliveredMessages(result)).toEqual([]);
   });
 });

@@ -69,7 +69,7 @@ import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagen
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
 import { getUserMessageText } from "./message-history.js";
 import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
-import { mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
+import { mapOmpHubDeliveredMessages, mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
 import { materializeProviderImage } from "../provider-image-output.js";
 import { OmpCliRuntime } from "./cli-runtime.js";
 import { listOmpImportableSessions, readOmpImportSessionConfig } from "./session-descriptor.js";
@@ -85,6 +85,7 @@ import type {
   OmpThinkingLevel,
 } from "./rpc-types.js";
 import {
+  extractTextFromToolResult,
   parseToolArgs,
   parseToolResult,
   resolveToolCallName,
@@ -1958,6 +1959,11 @@ export class OmpAgentSession implements AgentSession {
         this.emitTodoItem(item, turnId);
       } else {
         this.logger.debug({ event }, "Dropped malformed OMP todo tool result");
+      }
+    }
+    if (event.toolName === "hub") {
+      for (const item of mapOmpHubDeliveredMessages(extractTextFromToolResult(result) ?? "")) {
+        this.emit({ type: "timeline", provider: this.provider, turnId, item });
       }
     }
   }

@@ -182,6 +182,41 @@ describe("OMP provider subagent mapper", () => {
     ]);
   });
 
+  // When a child deliberately waits, its inbound message arrives as the `hub` tool result
+  // rather than an injection, so the pane showed only an opaque tool row.
+  test("cards messages a child received through a hub wait result", () => {
+    const index = new OmpSubagentIndex();
+    const parent = {};
+
+    const events = index.handleEvent(parent, {
+      id: "child-1",
+      event: {
+        type: "message_end",
+        message: {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "hub",
+          content: [{ type: "text", text: "[15403b1659347de5] Main: Reply once, then yield." }],
+        },
+      },
+    });
+
+    expect(events).toContainEqual({
+      type: "provider_subagent",
+      provider: "omp",
+      event: {
+        type: "timeline",
+        id: "child-1",
+        item: {
+          type: "irc_message",
+          sender: "Main",
+          body: "Reply once, then yield.",
+          deliveryState: "delivered",
+        },
+      },
+    });
+  });
+
   test("maps aborted lifecycle status to canceled", () => {
     const index = new OmpSubagentIndex();
     const parent = {};

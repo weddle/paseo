@@ -1,6 +1,7 @@
 import type { AgentStreamEvent, AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js";
 import type { OmpAgentMessage, OmpImageContent, OmpTextContent } from "./rpc-types.js";
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
+import { mapOmpHubDeliveredMessages } from "./irc-message.js";
 import {
   extractTextFromToolResult,
   mapToolDetail,
@@ -89,13 +90,9 @@ export class OmpHistoryMapper {
         case "assistant":
           events.push(...this.mapAssistantMessage(message));
           break;
-        case "toolResult": {
-          const event = this.mapToolResultMessage(message);
-          if (event) {
-            events.push(event);
-          }
+        case "toolResult":
+          events.push(...this.mapToolResultMessage(message));
           break;
-        }
         case "bashExecution":
           events.push(this.mapBashExecutionMessage(message));
           break;
@@ -206,26 +203,39 @@ export class OmpHistoryMapper {
 
   private mapToolResultMessage(
     message: Extract<OmpAgentMessage, { role: "toolResult" }>,
-  ): AgentStreamEvent | null {
+  ): AgentStreamEvent[] {
     const tracked =
       this.pendingToolCalls.get(message.toolCallId) ?? parseToolArgs(message.toolName, null);
     this.pendingToolCalls.delete(message.toolCallId);
     const result = parseToolResult({ content: message.content, details: message.details });
+    const resultText = extractTextFromToolResult(result);
+    // A `hub` wait/inbox result carries the messages this agent received, so surface them as
+    // IRC cards alongside the tool row instead of burying them in collapsed tool output.
+    const delivered =
+      message.toolName === "hub" ? mapOmpHubDeliveredMessages(resultText ?? "") : [];
+    const deliveredEvents = delivered.map((item) => ({
+      type: "timeline" as const,
+      provider: this.provider,
+      item,
+    }));
     const detail = this.mapToolDetail(message.toolCallId, tracked, result);
     if (!detail) {
-      return null;
+      return deliveredEvents;
     }
-    return {
-      type: "timeline",
-      provider: this.provider,
-      item: toToolResultTimelineItem({
-        callId: this.resolveToolCallId(message.toolCallId, tracked),
-        name: resolveToolCallName(tracked, result),
-        isError: Boolean(message.isError),
-        detail,
-        errorText: extractTextFromToolResult(result) ?? "Tool call failed",
-      }),
-    };
+    return [
+      {
+        type: "timeline",
+        provider: this.provider,
+        item: toToolResultTimelineItem({
+          callId: this.resolveToolCallId(message.toolCallId, tracked),
+          name: resolveToolCallName(tracked, result),
+          isError: Boolean(message.isError),
+          detail,
+          errorText: resultText ?? "Tool call failed",
+        }),
+      },
+      ...deliveredEvents,
+    ];
   }
 
   private mapBashExecutionMessage(
