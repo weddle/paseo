@@ -34,22 +34,31 @@ context as prose. Everything else has a field.
 Existing regex parsers are retained as fallbacks for OMP builds that omit `details`, behind an
 explicit branch. Do not delete them; do not reach for them first.
 
-## Inbound IRC arrives three different ways
+## Inbound IRC arrives at least seven different ways
 
 This is the part that costs time. Which transport fires depends on whether the receiving agent was
-**interrupted** or was **deliberately waiting**, so a change that works in one test can look
-completely broken in the next.
+**interrupted**, was **deliberately waiting**, or is being **relayed to**, so a change that works in
+one test can look completely broken in the next. This table was verified against OMP's own source
+(`vendor/oh-my-pi`), not inferred from usage — three of these had never appeared in 672 local
+sessions.
 
-| Transport                       | Wire shape                                                                | Structured source                               | Where it is handled               |
-| ------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------- |
-| Peer interrupt                  | `<irc>…</irc>` message frame                                              | none — the envelope is the data                 | `mapOmpIrcEnvelopeToTimelineItem` |
-| Parent → subagent interrupt     | plain prose ending in a `Parent IRC message:` label                       | `steering` / `attribution` flags on the message | `mapParentSteeringEnvelope`       |
-| `hub wait` / `hub inbox` result | `[<id>] <sender> (reply to <id>): <body>`, delivered as a **tool result** | `details.waited` / `details.inbox`              | `mapOmpHubDeliveredMessages`      |
+| Transport                        | Wire shape                                                                | Structured source                               | Handled by                        |
+| -------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------- |
+| Peer interrupt                   | `<irc>…</irc>` message frame                                              | none — the envelope is the data                 | `mapOmpIrcEnvelopeToTimelineItem` |
+| Parent → subagent interrupt      | plain prose ending in a `Parent IRC message:` label                       | `steering` / `attribution` flags on the message | `mapParentSteeringEnvelope`       |
+| `hub wait` / `hub inbox` result  | `[<id>] <sender> (reply to <id>): <body>`, delivered as a **tool result** | `details.waited` / `details.inbox`              | `mapOmpHubDeliveredMessages`      |
+| `custom_message` `irc:incoming`  | `<irc>` envelope in `content`                                             | `details.{id,from,message,replyTo}`             | `mapIncomingIrcDetails`           |
+| `custom_message` `irc:autoreply` | prose                                                                     | `details.{to,body,replyTo}`                     | **nothing yet**                   |
+| `custom_message` `irc:relay`     | prose                                                                     | `details.{from,to,body}`                        | **nothing yet**                   |
+| live `irc_message` RPC event     | `CustomMessage`, no entry envelope                                        | the event payload itself                        | **nothing yet**                   |
 
-All three live in `packages/server/src/server/agent/providers/omp/irc-message.ts`. The first two
-come from OMP's own prompt templates (`prompts/system/irc-incoming.md` and
-`prompts/steering/parent-irc.md`); the third is the `hub` tool's return value and never passes
-through a message frame at all.
+Sources: `irc-bridge.ts:113-126` (incoming), `:185-190` (autoreply), `irc/bus.ts:365-371` (relay),
+`agent-session-events.ts:13-64` (the live event).
+
+The handled ones live in `packages/server/src/server/agent/providers/omp/irc-message.ts`. The first
+two come from OMP's own prompt templates (`prompts/system/irc-incoming.md` and
+`prompts/steering/parent-irc.md`); the `hub` one is a tool return value and never passes through a
+message frame at all.
 
 Each transport must be wired into **both** paths, or it will render in the parent pane and not the
 subagent pane (or vice versa):
@@ -108,6 +117,43 @@ protocol contract in the direction that matters: an old client talking to a new 
 is already an optional record on the wire, so older clients simply fall back to the generic label.
 
 Prefer `metadata` for anything a client needs in order to _present_ a tool call differently.
+
+## Coverage gaps
+
+Verified against OMP source in 2026-07, cross-checked against 672 local sessions. Usage alone does
+not reveal these — several surfaces below have never fired locally. Re-derive from
+`vendor/oh-my-pi` rather than trusting this list after a major OMP release.
+
+**Tools.** OMP registers 28 builtins (`tools/index.ts:357-389`) plus hidden `yield`/`goal`, plus
+non-registry `advise`, `vibe_*`, `generate_image`, `tts`. Paseo maps twelve. Every unmapped tool
+renders as a raw-JSON `unknown` card, and every one of them carries structured `details`.
+Unmapped and **enabled by default**: `lsp`, `ast_edit`, `debug`, `ask`, `browser`, `advise`.
+Unmapped and off or backend-gated: `ast_grep`, `github`, `inspect_image`, `computer`, `checkpoint`,
+`memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill`, `rewind`, `goal`, `vibe_*`,
+`generate_image`, `tts`.
+
+Tool names carry aliases (`builtin-names.ts:36-41`): `search` → `grep`, `find` → `glob`. Add
+aliases to `OMP_TOOL_KIND_BY_NAME` rather than new schemas. Note `ls` in that table matches no OMP
+tool at all — dead vocabulary, same as `find` was before its shape was corrected.
+
+**Records that reach `visibleFallback`** and render as the literal text
+`[<type>] Unsupported history record`: `compaction` (carries `summary`, `shortSummary`,
+`tokensBefore`; this is upstream issue #2266), `ttsr_injection`, `service_tier_change`, and the
+source-confirmed but locally unseen `branch_summary`, `label`, `mode_change`.
+
+**Roles** Paseo does not handle: `developer`, `pythonExecution`, `hookMessage`, `fileMention`,
+`branchSummary`, `compactionSummary`. `developer` is a live/replay divergence — `agent.ts` drops it
+live at the `role !== "user"` guard, while replay renders it as noise.
+
+**Content blocks** unhandled: `redactedThinking`, `fallback`, `anthropicServerTool`.
+
+**Live events** unhandled: `turn_end`, `ttsr_triggered`, `todo_reminder`, `todo_auto_clear`,
+`irc_message`, `thinking_level_changed`.
+
+**`display: true` customTypes** rendering as prose rather than a typed card: `irc:autoreply`,
+`irc:relay`, `async-result` (`{jobs}`), `lsp-late-diagnostic` (`{files}`), `skill-prompt`,
+`collab-prompt`, `background-tan-dispatch`, `handoff`, `live-delegation`. The roughly thirty other
+built-in customTypes default `display: false` and are correctly invisible.
 
 ## Paseo Hub is unrelated
 
