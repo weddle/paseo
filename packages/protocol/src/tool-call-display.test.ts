@@ -137,6 +137,52 @@ describe("shared tool-call display mapping", () => {
     ).toEqual({ displayName: "Waited for agent activity" });
   });
 
+  // OMP's own launch output reads "Started <name>", so the verb leads and the process name
+  // rides in the summary, the way Read/Shell/Search already split verb from subject.
+  it("splits the verb from the process name for supervised processes", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: { hubOperation: "start", hubTarget: "paseo-daily" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Started", summary: "paseo-daily" });
+
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "running",
+        error: null,
+        metadata: { hubOperation: "start", hubTarget: "paseo-daily" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Starting", summary: "paseo-daily" });
+
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: { hubOperation: "logs", hubTarget: "paseo-daily" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Read logs", summary: "paseo-daily" });
+  });
+
+  it("keeps the full phrase for a process operation that names nothing", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: { hubOperation: "ps" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Listed processes" });
+  });
+
   it("falls back to a neutral label for an operation it does not know", () => {
     expect(
       buildToolCallDisplayModel({

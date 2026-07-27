@@ -127,22 +127,60 @@ function buildCanonicalDetailDisplay(input: ToolCallDisplayInput): DetailDisplay
   }
 }
 
+interface HubOperationLabel {
+  /** Phrase used when the call names no specific target. */
+  active: string;
+  settled: string;
+  /**
+   * Verb used when the call does name one. The target then renders as the row summary, matching
+   * how Read/Shell/Search split the verb from its subject, and reproducing OMP's own phrasing —
+   * `tools/hub/launch.ts` reports "Started <name>", never "Started process <name>".
+   */
+  activeWithTarget?: string;
+  settledWithTarget?: string;
+}
+
 // Operation labels for OMP's `hub` agent-coordination tool. A row is a live indicator while the
 // call runs and a record of what happened once it settles, so each label carries both tenses.
 // An unrecognized operation falls back to a neutral label rather than inventing one.
-const HUB_OPERATION_LABELS: Record<string, { active: string; settled: string }> = {
+const HUB_OPERATION_LABELS: Record<string, HubOperationLabel> = {
   send: { active: "Sending agent message", settled: "Sent agent message" },
   wait: { active: "Waiting for agent activity", settled: "Waited for agent activity" },
   inbox: { active: "Reading agent inbox", settled: "Read agent inbox" },
   list: { active: "Listing agents", settled: "Listed agents" },
   jobs: { active: "Checking agent jobs", settled: "Checked agent jobs" },
   cancel: { active: "Canceling agent work", settled: "Canceled agent work" },
-  start: { active: "Starting process", settled: "Started process" },
-  stop: { active: "Stopping process", settled: "Stopped process" },
-  restart: { active: "Restarting process", settled: "Restarted process" },
-  logs: { active: "Reading process logs", settled: "Read process logs" },
   ps: { active: "Listing processes", settled: "Listed processes" },
-  describe: { active: "Describing process", settled: "Described process" },
+  start: {
+    active: "Starting process",
+    settled: "Started process",
+    activeWithTarget: "Starting",
+    settledWithTarget: "Started",
+  },
+  stop: {
+    active: "Stopping process",
+    settled: "Stopped process",
+    activeWithTarget: "Stopping",
+    settledWithTarget: "Stopped",
+  },
+  restart: {
+    active: "Restarting process",
+    settled: "Restarted process",
+    activeWithTarget: "Restarting",
+    settledWithTarget: "Restarted",
+  },
+  logs: {
+    active: "Reading process logs",
+    settled: "Read process logs",
+    activeWithTarget: "Reading logs",
+    settledWithTarget: "Read logs",
+  },
+  describe: {
+    active: "Describing process",
+    settled: "Described process",
+    activeWithTarget: "Describing",
+    settledWithTarget: "Described",
+  },
 };
 // A `hub` send names each recipient and how it landed, so the row can state the outcome instead
 // of leaving it inside collapsed output.
@@ -189,34 +227,32 @@ function hubDeliverySummary(deliveries: HubDelivery[]): string | undefined {
   return deliveries.length === 1 ? "Delivered" : `Delivered to ${deliveries.length} agents`;
 }
 
-function hubDisplayName(
-  operation: string | undefined,
-  target: string | undefined,
-  isActive: boolean,
-): string {
-  const labels = operation ? HUB_OPERATION_LABELS[operation] : undefined;
-  if (!labels) {
-    return "Agent coordination";
-  }
-  // A send reads better naming its recipient inline than appending it to the generic label.
-  if (operation === "send" && target) {
-    return isActive ? `Sending message to ${target}` : `Sent message to ${target}`;
-  }
-  const label = isActive ? labels.active : labels.settled;
-  return target ? `${label} ${target}` : label;
-}
-
 function hubDisplay(input: ToolCallDisplayInput): DetailDisplay {
   const metadata = isRecord(input.metadata) ? input.metadata : {};
   const operation = readString(metadata.hubOperation);
   const target = readString(metadata.hubTarget);
-  const isKnownOperation = !!operation && operation in HUB_OPERATION_LABELS;
-  const summary =
-    hubDeliverySummary(readHubDeliveries(input.metadata)) ??
-    (isKnownOperation ? undefined : operation);
+  const isActive = input.status === "running";
+  const labels = operation ? HUB_OPERATION_LABELS[operation] : undefined;
+  const delivery = hubDeliverySummary(readHubDeliveries(input.metadata));
+
+  if (!labels) {
+    return { displayName: "Agent coordination", ...(operation ? { summary: operation } : {}) };
+  }
+  // A send reads better naming its recipient inline, because its summary states the outcome.
+  if (operation === "send" && target) {
+    return {
+      displayName: isActive ? `Sending message to ${target}` : `Sent message to ${target}`,
+      ...(delivery ? { summary: delivery } : {}),
+    };
+  }
+  const targetedVerb = isActive ? labels.activeWithTarget : labels.settledWithTarget;
+  if (target && targetedVerb) {
+    return { displayName: targetedVerb, summary: target };
+  }
+  const phrase = isActive ? labels.active : labels.settled;
   return {
-    displayName: hubDisplayName(operation, target, input.status === "running"),
-    ...(summary ? { summary } : {}),
+    displayName: target ? `${phrase} ${target}` : phrase,
+    ...(delivery ? { summary: delivery } : {}),
   };
 }
 
