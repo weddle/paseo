@@ -31,6 +31,17 @@ describe("OMP 17 RPC compatibility", () => {
     expect(shouldDisplayOmpCustomMessage(message)).toBe(true);
   });
 
+  test("retains optional parent-steering metadata on live messages", () => {
+    const message = OmpAgentMessageSchema.parse({
+      role: "user",
+      content: "Continue with the requested implementation.",
+      steering: true,
+      attribution: "agent",
+    });
+
+    expect(message).toMatchObject({ steering: true, attribution: "agent" });
+  });
+
   test("maps subscribed custom tool events without assuming built-in names", () => {
     const event = {
       type: "tool_execution_start",

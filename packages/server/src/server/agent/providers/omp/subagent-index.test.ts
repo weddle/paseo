@@ -182,6 +182,41 @@ describe("OMP provider subagent mapper", () => {
     ]);
   });
 
+  test("maps typed parent steering without the legacy prose label in a child transcript", () => {
+    const index = new OmpSubagentIndex();
+    const parent = {};
+
+    expect(
+      index.handleEvent(parent, {
+        id: "child-1",
+        event: {
+          type: "message_end",
+          message: {
+            role: "user",
+            content: "Continue with the requested implementation.",
+            steering: true,
+            attribution: "agent",
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        type: "provider_subagent",
+        provider: "omp",
+        event: {
+          type: "timeline",
+          id: "child-1",
+          item: {
+            type: "irc_message",
+            sender: "Parent agent",
+            body: "Continue with the requested implementation.",
+            deliveryState: "delivered",
+          },
+        },
+      },
+    ]);
+  });
+
   // When a child deliberately waits, its inbound message arrives as the `hub` tool result
   // rather than an injection, so the pane showed only an opaque tool row.
   test("cards messages a child received through a hub wait result", () => {

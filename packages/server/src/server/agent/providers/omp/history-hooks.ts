@@ -7,17 +7,17 @@ import { resolveOmpEmittedToolCallId } from "./tool-call-id.js";
 
 export const OMP_HISTORY_MAPPER_HOOKS: OmpHistoryMapperHooks = {
   mapToolDetail: mapOmpToolDetail,
-  mapUserMessage: (_message, text, provider) => {
-    const item = mapOmpIrcEnvelopeToTimelineItem(text);
+  mapUserMessage: (message, text, provider) => {
+    const item = mapOmpIrcEnvelopeToTimelineItem(text, message);
     return item ? { type: "timeline", provider, item } : null;
   },
-  mapAssistantMessage: (_message, text, provider) => {
-    const item = mapOmpIrcEnvelopeToTimelineItem(text);
+  mapAssistantMessage: (message, text, provider) => {
+    const item = mapOmpIrcEnvelopeToTimelineItem(text, message);
     return item ? { type: "timeline", provider, item } : null;
   },
   mapCustomMessage: (message, text, provider) => {
     const item =
-      mapOmpIrcEnvelopeToTimelineItem(text) ??
+      mapOmpIrcEnvelopeToTimelineItem(text, message) ??
       mapOmpAdvisorMessageToToolCall(message, text) ??
       mapOmpSystemNoticeToToolCall(text);
     return item ? { type: "timeline", provider, item } : null;

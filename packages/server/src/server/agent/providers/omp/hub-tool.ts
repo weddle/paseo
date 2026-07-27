@@ -4,6 +4,8 @@ import type { ToolCallDetail } from "../../agent-sdk-types.js";
  * Per-recipient outcome line from a `hub` send, e.g. "- IrcPing: injected" or
  * "- Reviewer: failed — Unknown agent". The state vocabulary belongs to OMP and grows over
  * time, so it is carried through as a string rather than narrowed to an enum here.
+ *
+ * Only used when a result carries no structured `details`; see readDeliveries.
  */
 const HUB_DELIVERY_LINE_PATTERN = /^-\s+([\w.-]+):\s+([\w-]+)(?:\s*[—–-]\s*(.+))?$/;
 // OMP appends its own remediation hint after a dash — "Unknown agent \"X\" — check `irc list`".
@@ -17,10 +19,21 @@ export interface OmpHubDelivery {
   reason?: string;
 }
 
+/** A background job as reported by `hub jobs`, `hub wait`, or `hub cancel`. */
+export interface OmpHubJob {
+  id: string;
+  status: string;
+  label?: string;
+  kind?: string;
+  durationMs?: number;
+  error?: string;
+}
+
 export interface OmpHubToolFacts {
   operation?: string;
   target?: string;
   deliveries?: OmpHubDelivery[];
+  jobs?: OmpHubJob[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -31,6 +44,40 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Reads per-recipient outcomes from a `hub send`. OMP reports these as
+ * `receipts: [{ to, outcome, error? }]`, which is authoritative — the text body is a rendering
+ * of the same data.
+ */
+function readReceipts(details: Record<string, unknown>): OmpHubDelivery[] {
+  const raw = details.receipts;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const deliveries: OmpHubDelivery[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const agent = readString(entry.to);
+    const state = readString(entry.outcome);
+    if (!agent || !state) {
+      continue;
+    }
+    const reason = readString(entry.error);
+    deliveries.push({ agent, state, ...(reason ? { reason } : {}) });
+  }
+  return deliveries;
+}
+
+/**
+ * Fallback for OMP builds that report deliveries only in the rendered text. `receipts` is the
+ * structured form and is preferred whenever present.
+ */
 function readDeliveries(resultText: string | undefined): OmpHubDelivery[] {
   if (!resultText) {
     return [];
@@ -50,20 +97,68 @@ function readDeliveries(resultText: string | undefined): OmpHubDelivery[] {
 }
 
 /**
+ * Reads the job table OMP attaches to `jobs`, `wait`, and `cancel`. There is no text fallback:
+ * the rendered form is a prose summary that cannot be recovered into per-job rows.
+ */
+function readJobs(details: Record<string, unknown>): OmpHubJob[] {
+  const raw = details.jobs;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const jobs: OmpHubJob[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const id = readString(entry.id);
+    const status = readString(entry.status);
+    if (!id || !status) {
+      continue;
+    }
+    const label = readString(entry.label);
+    const kind = readString(entry.type);
+    const durationMs = readNumber(entry.durationMs);
+    const error = readString(entry.errorText);
+    jobs.push({
+      id,
+      status,
+      ...(label ? { label } : {}),
+      ...(kind ? { kind } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
+      ...(error ? { error } : {}),
+    });
+  }
+  return jobs;
+}
+
+/**
  * Structured facts about a `hub` call, carried on the timeline item's optional `metadata` so
  * clients that do not know about them keep parsing the item normally.
+ *
+ * `details` is OMP's own structured result and is authoritative. Args and result text are only
+ * consulted for facts it does not carry, or for OMP builds that omit it entirely.
  */
-export function readOmpHubToolFacts(args: unknown, resultText?: string): OmpHubToolFacts {
-  const record = isRecord(args) ? args : {};
-  const operation = readString(record.op);
+export function readOmpHubToolFacts(
+  args: unknown,
+  resultText?: string,
+  details?: unknown,
+): OmpHubToolFacts {
+  const argRecord = isRecord(args) ? args : {};
+  const detailRecord = isRecord(details) ? details : {};
+  // The result reports the operation OMP actually ran; args report the one that was asked for.
+  const operation = readString(detailRecord.op) ?? readString(argRecord.op);
   // `to` addresses an agent; `name` addresses a supervised process. Both are the thing the
   // operation acts on, which is what a reader wants in the title.
-  const target = readString(record.to) ?? readString(record.name);
-  const deliveries = readDeliveries(resultText);
+  const target =
+    readString(detailRecord.to) ?? readString(argRecord.to) ?? readString(argRecord.name);
+  const receipts = readReceipts(detailRecord);
+  const deliveries = receipts.length > 0 ? receipts : readDeliveries(resultText);
+  const jobs = readJobs(detailRecord);
   return {
     ...(operation ? { operation } : {}),
     ...(target ? { target } : {}),
     ...(deliveries.length > 0 ? { deliveries } : {}),
+    ...(jobs.length > 0 ? { jobs } : {}),
   };
 }
 
@@ -81,22 +176,4 @@ export function buildOmpHubToolDetail(args: unknown, resultText?: string): ToolC
     return null;
   }
   return { type: "unknown", input: message, output: resultText ?? null };
-}
-/**
- * Builds the optional `metadata` slice for an OMP tool call. Only `hub` contributes today; the
- * empty object spreads to nothing, so every other tool emits exactly the item it always did.
- */
-export function buildOmpToolMetadata(
-  toolCall: { toolName: string; args?: unknown },
-  resultText?: string,
-): { metadata?: Record<string, unknown> } {
-  if (toolCall.toolName !== "hub") {
-    return {};
-  }
-  const facts = readOmpHubToolFacts(toolCall.args, resultText);
-  const metadata: Record<string, unknown> = {};
-  if (facts.operation) metadata.hubOperation = facts.operation;
-  if (facts.target) metadata.hubTarget = facts.target;
-  if (facts.deliveries) metadata.hubDeliveries = facts.deliveries;
-  return Object.keys(metadata).length > 0 ? { metadata } : {};
 }

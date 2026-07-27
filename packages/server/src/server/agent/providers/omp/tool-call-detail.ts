@@ -26,12 +26,6 @@ interface WriteToolInput {
   content: string;
 }
 
-interface FindToolInput {
-  pattern: string;
-  path?: string;
-  limit?: number;
-}
-
 interface GrepToolInput {
   pattern: string;
   path?: string;
@@ -46,6 +40,24 @@ interface LsToolInput {
   path?: string;
   limit?: number;
 }
+interface GlobToolInput {
+  path?: string;
+  gitignore?: boolean;
+  hidden?: boolean;
+  limit?: number;
+}
+
+interface WebSearchToolInput {
+  query?: string;
+}
+
+interface EvalToolInput {
+  language?: string;
+  code?: string;
+  title?: string;
+}
+
+interface YieldToolInput {}
 
 interface OmpToolResultObject {
   output?: string;
@@ -99,12 +111,6 @@ interface OmpWriteToolCall {
   args: WriteToolInput;
 }
 
-interface OmpFindToolCall {
-  kind: "find";
-  toolName: "find";
-  args: FindToolInput;
-}
-
 interface OmpGrepToolCall {
   kind: "grep";
   toolName: "grep";
@@ -115,6 +121,29 @@ interface OmpLsToolCall {
   kind: "ls";
   toolName: "ls";
   args: LsToolInput;
+}
+interface OmpGlobToolCall {
+  kind: "glob";
+  toolName: "glob";
+  args: GlobToolInput;
+}
+
+interface OmpWebSearchToolCall {
+  kind: "web_search";
+  toolName: "web_search";
+  args: WebSearchToolInput;
+}
+
+interface OmpYieldToolCall {
+  kind: "yield";
+  toolName: "yield";
+  args: YieldToolInput;
+}
+
+interface OmpEvalToolCall {
+  kind: "eval";
+  toolName: "eval";
+  args: EvalToolInput;
 }
 
 interface OmpUnknownToolCall {
@@ -128,9 +157,12 @@ export type OmpTrackedToolCall =
   | OmpReadToolCall
   | OmpEditToolCall
   | OmpWriteToolCall
-  | OmpFindToolCall
   | OmpGrepToolCall
   | OmpLsToolCall
+  | OmpGlobToolCall
+  | OmpWebSearchToolCall
+  | OmpYieldToolCall
+  | OmpEvalToolCall
   | OmpUnknownToolCall;
 
 interface ToolCallOutputSummary {
@@ -215,12 +247,6 @@ const WriteToolInputSchema: z.ZodType<WriteToolInput> = z.object({
   content: z.string(),
 });
 
-const FindToolInputSchema: z.ZodType<FindToolInput> = z.object({
-  pattern: z.string(),
-  path: z.string().optional(),
-  limit: z.number().optional(),
-});
-
 const GrepToolInputSchema: z.ZodType<GrepToolInput> = z.object({
   pattern: z.string(),
   path: z.string().optional(),
@@ -234,6 +260,58 @@ const GrepToolInputSchema: z.ZodType<GrepToolInput> = z.object({
 const LsToolInputSchema: z.ZodType<LsToolInput> = z.object({
   path: z.string().optional(),
   limit: z.number().optional(),
+});
+const GlobToolInputSchema: z.ZodType<GlobToolInput> = z.object({
+  path: z.string().optional(),
+  gitignore: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  limit: z.number().optional(),
+});
+
+const WebSearchToolInputSchema: z.ZodType<WebSearchToolInput> = z.object({
+  query: z.string().optional(),
+});
+
+const EvalToolInputSchema: z.ZodType<EvalToolInput> = z.object({
+  language: z.string().optional(),
+  code: z.string().optional(),
+  title: z.string().optional(),
+});
+
+const YieldToolInputSchema: z.ZodType<YieldToolInput> = z.object({});
+
+const GlobToolDetailsSchema = z.object({
+  scopePath: z.string().optional(),
+  fileCount: z.number().optional(),
+  files: z.array(z.string()).optional(),
+  truncated: z.boolean().optional(),
+});
+
+const WebSearchToolDetailsSchema = z.object({
+  response: z
+    .object({
+      answer: z.string().optional(),
+    })
+    .optional(),
+});
+
+const YieldToolDetailsSchema = z.object({
+  data: z.unknown().optional(),
+  status: z.string().optional(),
+  type: z.string().optional(),
+});
+
+const EvalToolCellSchema = z.object({
+  title: z.string().optional(),
+  code: z.string().optional(),
+  language: z.string().optional(),
+  output: z.string().optional(),
+  status: z.string().optional(),
+});
+
+const EvalToolDetailsSchema = z.object({
+  language: z.string().optional(),
+  cells: z.array(EvalToolCellSchema).optional(),
 });
 
 export function parseToolResult(rawResult: unknown): OmpToolResult {
@@ -274,18 +352,13 @@ export function parseToolArgs(toolName: string, rawArgs: unknown): OmpTrackedToo
   if (toolName === "edit") {
     return parseEditToolArgs(rawArgs);
   }
-  const schema = SIMPLE_TOOL_SCHEMAS[toolName as SimpleToolKind];
-  if (schema) {
-    const parsed = schema.safeParse(rawArgs);
-    if (parsed.success) {
-      return {
-        kind: toolName as SimpleToolKind,
-        toolName,
-        args: parsed.data,
-      } as OmpTrackedToolCall;
+  return (
+    parseOmpKnownToolArgs(toolName, rawArgs) ?? {
+      kind: "unknown",
+      toolName,
+      args: rawArgs ?? null,
     }
-  }
-  return { kind: "unknown", toolName, args: rawArgs ?? null };
+  );
 }
 
 export function resolveToolCallName(toolCall: OmpTrackedToolCall, result?: OmpToolResult): string {
@@ -338,8 +411,14 @@ export function mapToolDetail(
     }
     case "write":
       return mapWriteToolDetail(toolCall.args, parsedResult);
-    case "find":
-      return mapFindToolDetail(toolCall.args, parsedResult);
+    case "glob":
+      return mapGlobToolDetail(toolCall.args, parsedResult);
+    case "web_search":
+      return mapWebSearchToolDetail(toolCall.args, parsedResult);
+    case "yield":
+      return mapYieldToolDetail(parsedResult);
+    case "eval":
+      return mapEvalToolDetail(toolCall.args, parsedResult);
     case "grep":
       return mapGrepToolDetail(toolCall.args, parsedResult);
     case "ls":
@@ -434,25 +513,252 @@ function parseEditToolArgs(rawArgs: unknown): OmpTrackedToolCall {
   return { kind: "unknown", toolName: "edit", args: rawArgs ?? null };
 }
 
-type SimpleToolKind = "bash" | "read" | "write" | "find" | "grep" | "ls";
-const SIMPLE_TOOL_SCHEMAS: {
-  [K in SimpleToolKind]: { safeParse: (data: unknown) => { success: boolean; data?: unknown } };
-} = {
-  bash: BashToolInputSchema,
-  read: ReadToolInputSchema,
-  write: WriteToolInputSchema,
-  find: FindToolInputSchema,
-  grep: GrepToolInputSchema,
-  ls: LsToolInputSchema,
+type OmpKnownToolKind =
+  | "bash"
+  | "read"
+  | "write"
+  | "grep"
+  | "ls"
+  | "glob"
+  | "web_search"
+  | "yield"
+  | "eval";
+
+/**
+ * Tool-name aliases for OMP's built-in tools. A rename upstream is absorbed by adding a key here
+ * rather than by falling through to the raw-JSON `unknown` card, which is how `glob` went
+ * unrendered while a schema for the superseded `find` name sat unused.
+ */
+const OMP_TOOL_KIND_BY_NAME: Record<string, OmpKnownToolKind> = {
+  bash: "bash",
+  read: "read",
+  write: "write",
+  grep: "grep",
+  ls: "ls",
+  glob: "glob",
+  web_search: "web_search",
+  yield: "yield",
+  eval: "eval",
 };
 
-function mapFindToolDetail(args: FindToolInput, result: OmpToolResult): ToolCallDetail {
+/**
+ * One parser per kind. Each entry owns its own schema so the discriminated union is built
+ * without a cast, and adding a tool stays a single-entry change.
+ */
+const OMP_TOOL_ARG_PARSERS: {
+  [K in OmpKnownToolKind]: (rawArgs: unknown) => OmpTrackedToolCall | null;
+} = {
+  bash: (rawArgs) => {
+    const parsed = BashToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "bash", toolName: "bash", args: parsed.data } : null;
+  },
+  read: (rawArgs) => {
+    const parsed = ReadToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "read", toolName: "read", args: parsed.data } : null;
+  },
+  write: (rawArgs) => {
+    const parsed = WriteToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "write", toolName: "write", args: parsed.data } : null;
+  },
+  grep: (rawArgs) => {
+    const parsed = GrepToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "grep", toolName: "grep", args: parsed.data } : null;
+  },
+  ls: (rawArgs) => {
+    const parsed = LsToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "ls", toolName: "ls", args: parsed.data } : null;
+  },
+  glob: (rawArgs) => {
+    const parsed = GlobToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "glob", toolName: "glob", args: parsed.data } : null;
+  },
+  web_search: (rawArgs) => {
+    const parsed = WebSearchToolInputSchema.safeParse(rawArgs);
+    return parsed.success
+      ? { kind: "web_search", toolName: "web_search", args: parsed.data }
+      : null;
+  },
+  yield: (rawArgs) => {
+    const parsed = YieldToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "yield", toolName: "yield", args: parsed.data } : null;
+  },
+  eval: (rawArgs) => {
+    const parsed = EvalToolInputSchema.safeParse(rawArgs);
+    return parsed.success ? { kind: "eval", toolName: "eval", args: parsed.data } : null;
+  },
+};
+
+function resolveOmpKnownToolKind(toolName: string): OmpKnownToolKind | null {
+  return OMP_TOOL_KIND_BY_NAME[toolName.trim()] ?? null;
+}
+
+function parseOmpKnownToolArgs(toolName: string, rawArgs: unknown): OmpTrackedToolCall | null {
+  const kind = resolveOmpKnownToolKind(toolName);
+  // Tools whose arguments are entirely optional still parse from a call recorded without args.
+  return kind ? OMP_TOOL_ARG_PARSERS[kind](rawArgs ?? {}) : null;
+}
+
+function mapGlobToolDetail(args: GlobToolInput, result: OmpToolResult): ToolCallDetail {
+  const details = toolResultDetails(result);
+  if (!details) {
+    // OMP's structured `details` payload is absent, so retain legacy rendered glob output.
+    const content = extractTextFromToolResult(result);
+    return {
+      type: "search",
+      query: args.path ?? "glob",
+      toolName: "glob",
+      ...(content ? { content } : {}),
+    };
+  }
+
+  const parsed = GlobToolDetailsSchema.safeParse(details);
+  const facts = parsed.success ? parsed.data : {};
   return {
     type: "search",
-    query: args.pattern,
-    toolName: "search",
-    content: typeof result === "string" ? result : undefined,
+    query: facts.scopePath ?? args.path ?? "glob",
+    toolName: "glob",
+    ...(facts.files ? { filePaths: facts.files } : {}),
+    ...(typeof facts.fileCount === "number" ? { numFiles: facts.fileCount } : {}),
+    ...(typeof facts.truncated === "boolean" ? { truncated: facts.truncated } : {}),
   };
+}
+
+function mapWebSearchToolDetail(args: WebSearchToolInput, result: OmpToolResult): ToolCallDetail {
+  const details = toolResultDetails(result);
+  if (!details) {
+    // OMP's structured `details.response.answer` field is absent, so retain legacy rendered output.
+    const content = extractTextFromToolResult(result);
+    return {
+      type: "search",
+      query: args.query ?? "web search",
+      toolName: "web_search",
+      ...(content ? { content } : {}),
+    };
+  }
+
+  const parsed = WebSearchToolDetailsSchema.safeParse(details);
+  const answer = parsed.success ? readNonEmptyString(parsed.data.response?.answer) : undefined;
+  return {
+    type: "search",
+    query: args.query ?? "web search",
+    toolName: "web_search",
+    ...(answer ? { content: answer } : {}),
+  };
+}
+
+function mapYieldToolDetail(result: OmpToolResult): ToolCallDetail {
+  const details = toolResultDetails(result);
+  if (!details) {
+    // OMP's structured `details` payload is absent, so retain legacy rendered yield output.
+    const text = extractTextFromToolResult(result);
+    return {
+      type: "plain_text",
+      label: "Yielded",
+      ...(text ? { text } : {}),
+    };
+  }
+
+  const parsed = YieldToolDetailsSchema.safeParse(details);
+  const status = parsed.success ? readNonEmptyString(parsed.data.status) : undefined;
+  const text = parsed.success ? summarizeYieldData(parsed.data.data) : undefined;
+  return {
+    type: "plain_text",
+    label: status ? `Yielded ${status}` : "Yielded",
+    ...(text ? { text } : {}),
+  };
+}
+
+function mapEvalToolDetail(args: EvalToolInput, result: OmpToolResult): ToolCallDetail {
+  const details = toolResultDetails(result);
+  if (!details) {
+    // OMP's structured `details` payload is absent, so retain legacy rendered eval output.
+    const output = extractTextFromToolResult(result);
+    return {
+      type: "shell",
+      command: readNonEmptyString(args.code) ?? "eval",
+      ...(output ? { output } : {}),
+    };
+  }
+
+  const parsed = EvalToolDetailsSchema.safeParse(details);
+  const cell = parsed.success ? parsed.data.cells?.[0] : undefined;
+  if (!cell) {
+    return {
+      type: "shell",
+      command: readNonEmptyString(args.code) ?? "eval",
+      output: "No evaluation cell was returned.",
+    };
+  }
+
+  const output =
+    readNonEmptyString(cell.output) ?? (cell.status === "error" ? "Evaluation failed." : undefined);
+  return {
+    type: "shell",
+    command: readNonEmptyString(cell.code) ?? readNonEmptyString(args.code) ?? "eval",
+    ...(output ? { output } : {}),
+    ...(cell.status === "error" ? { exitCode: 1 } : {}),
+  };
+}
+
+export function readOmpEvalToolFacts(
+  args: unknown,
+  details: unknown,
+): { evalLanguage?: string; evalTitle?: string } {
+  const parsedArgs = EvalToolInputSchema.safeParse(args ?? {});
+  const parsedDetails = EvalToolDetailsSchema.safeParse(details);
+  if (!parsedArgs.success || !parsedDetails.success) {
+    return {};
+  }
+
+  const cell = parsedDetails.data.cells?.[0];
+  if (!cell) {
+    return {};
+  }
+
+  const language =
+    readNonEmptyString(cell.language) ??
+    readNonEmptyString(parsedDetails.data.language) ??
+    readNonEmptyString(parsedArgs.data.language);
+  const title = readNonEmptyString(cell.title);
+  return {
+    ...(language ? { evalLanguage: language } : {}),
+    ...(title ? { evalTitle: title } : {}),
+  };
+}
+
+function toolResultDetails(result: OmpToolResult): unknown {
+  return result && typeof result !== "string" ? result.details : undefined;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function summarizeYieldData(data: unknown): string | undefined {
+  if (isRecord(data)) {
+    const message = readNonEmptyString(data.message);
+    if (message) {
+      return message;
+    }
+  }
+  if (typeof data === "string") {
+    return readNonEmptyString(data);
+  }
+  if (typeof data === "number" || typeof data === "boolean" || data === null) {
+    return String(data);
+  }
+  if (data === undefined) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(data, null, 2);
+  } catch {
+    return String(data);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function mapGrepToolDetail(args: GrepToolInput, result: OmpToolResult): ToolCallDetail {

@@ -4,17 +4,47 @@ OMP agents talk to each other over a facility OMP calls IRC, driven by its `hub`
 renders both: inbound messages become `irc_message` timeline cards, and `hub` invocations become
 tool rows that name the operation, its target, and its outcome.
 
+## The adapter reads `details`
+
+**Rule: read OMP's structured payload. Parsing rendered text requires a comment naming the field
+that does not exist.**
+
+Every OMP tool result may carry a `details` object beside its human-readable `content`, and OMP
+conversation messages carry typed flags. The rendered text is a _projection_ of that data, not the
+source of it. This adapter was first written the other way around — regex-parsing prose to
+reconstruct facts that arrived typed on the same object — and the cost was real: cards that broke
+on wording changes, and a job table that was discarded because the prose summary was hard to parse.
+
+What is actually typed, measured against live sessions:
+
+| Fact                          | Structured source                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| hub operation                 | `details.op`                                                                           |
+| send recipients and outcomes  | `details.receipts[] = { to, outcome, error? }`                                         |
+| a delivered message           | `details.waited = { from, to, body, id, ts, replyTo? }`                                |
+| a batch of delivered messages | `details.inbox[]`                                                                      |
+| background jobs               | `details.jobs[] = { id, type, status, label, durationMs, resolvedModel?, errorText? }` |
+| "this is parent steering"     | `steering: true` and `attribution: "agent"` on the message                             |
+| eval code and output          | `details.cells[] = { title, code, language, output, status }`                          |
+
+Genuinely untyped, and the only places parsing is legitimate: the **sender name and body** of a
+parent steering message, and the `<irc>` peer envelope, both of which OMP injects into the model's
+context as prose. Everything else has a field.
+
+Existing regex parsers are retained as fallbacks for OMP builds that omit `details`, behind an
+explicit branch. Do not delete them; do not reach for them first.
+
 ## Inbound IRC arrives three different ways
 
 This is the part that costs time. Which transport fires depends on whether the receiving agent was
 **interrupted** or was **deliberately waiting**, so a change that works in one test can look
 completely broken in the next.
 
-| Transport                       | Wire shape                                                                | Where it is handled               |
-| ------------------------------- | ------------------------------------------------------------------------- | --------------------------------- |
-| Peer interrupt                  | `<irc>…</irc>` message frame                                              | `mapOmpIrcEnvelopeToTimelineItem` |
-| Parent → subagent interrupt     | plain prose ending in a `Parent IRC message:` label                       | `mapParentSteeringEnvelope`       |
-| `hub wait` / `hub inbox` result | `[<id>] <sender> (reply to <id>): <body>`, delivered as a **tool result** | `mapOmpHubDeliveredMessages`      |
+| Transport                       | Wire shape                                                                | Structured source                               | Where it is handled               |
+| ------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------- |
+| Peer interrupt                  | `<irc>…</irc>` message frame                                              | none — the envelope is the data                 | `mapOmpIrcEnvelopeToTimelineItem` |
+| Parent → subagent interrupt     | plain prose ending in a `Parent IRC message:` label                       | `steering` / `attribution` flags on the message | `mapParentSteeringEnvelope`       |
+| `hub wait` / `hub inbox` result | `[<id>] <sender> (reply to <id>): <body>`, delivered as a **tool result** | `details.waited` / `details.inbox`              | `mapOmpHubDeliveredMessages`      |
 
 All three live in `packages/server/src/server/agent/providers/omp/irc-message.ts`. The first two
 come from OMP's own prompt templates (`prompts/system/irc-incoming.md` and
@@ -33,9 +63,13 @@ appeared as both `custom` and `assistant`, so the history mapper hooks all three
 
 ## Prose matching is deliberately shallow
 
-Upstream owns the wording of these templates and may reword it. Parsing therefore anchors on the
-shortest structural marker available — the `Parent IRC message:` label, not the sentence around it —
-and every fallback degrades rather than drops:
+Where prose must still be parsed — a steering message's sender and body — upstream owns the wording
+and may reword it. Classification never depends on that wording: the typed `steering` and
+`attribution` flags establish that a message _is_ parent steering, and extraction runs only on a
+record already identified. When the flags are absent, the fallback anchors on the shortest
+structural marker available — the `Parent IRC message:` label, not the sentence around it.
+
+Every fallback degrades rather than drops:
 
 - an unrecognized sender attribution yields a generic `Parent agent`, not a dropped message
 - OMP's trailing transport boilerplate is stripped only from the **end** of a body, so a wording

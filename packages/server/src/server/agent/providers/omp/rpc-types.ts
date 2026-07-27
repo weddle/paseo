@@ -38,12 +38,16 @@ const OmpUserMessageSchema = z
   .object({
     role: z.literal("user"),
     content: z.union([z.string(), z.array(z.union([OmpTextContentSchema, OmpImageContentSchema]))]),
+    steering: z.boolean().optional(),
+    attribution: z.string().optional(),
   })
   .passthrough();
 const OmpCustomMessageSchema = z
   .object({
     role: z.literal("custom"),
     content: z.union([z.string(), z.array(z.union([OmpTextContentSchema, OmpImageContentSchema]))]),
+    steering: z.boolean().optional(),
+    attribution: z.string().optional(),
   })
   .passthrough();
 const OmpAssistantMessageSchema = z
@@ -56,6 +60,8 @@ const OmpAssistantMessageSchema = z
     responseModel: z.string().optional(),
     errorMessage: z.string().nullable().optional(),
     stopReason: z.string().optional(),
+    steering: z.boolean().optional(),
+    attribution: z.string().optional(),
   })
   .passthrough();
 const OmpToolResultMessageSchema = z
@@ -66,6 +72,8 @@ const OmpToolResultMessageSchema = z
     content: z.unknown(),
     isError: z.boolean().optional(),
     details: z.unknown().optional(),
+    steering: z.boolean().optional(),
+    attribution: z.string().optional(),
   })
   .passthrough();
 const OmpBashExecutionMessageSchema = z
@@ -76,6 +84,8 @@ const OmpBashExecutionMessageSchema = z
     exitCode: z.number().nullable().optional(),
     cancelled: z.boolean().optional(),
     timestamp: z.number(),
+    steering: z.boolean().optional(),
+    attribution: z.string().optional(),
   })
   .passthrough();
 

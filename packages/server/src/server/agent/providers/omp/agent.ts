@@ -69,7 +69,7 @@ import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagen
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
 import { getUserMessageText } from "./message-history.js";
 import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
-import { buildOmpToolMetadata } from "./hub-tool.js";
+import { buildOmpToolMetadata, readOmpToolResultDetails } from "./tool-metadata.js";
 import { mapOmpHubDeliveredMessages, mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
 import { materializeProviderImage } from "../provider-image-output.js";
 import { OmpCliRuntime } from "./cli-runtime.js";
@@ -1963,7 +1963,10 @@ export class OmpAgentSession implements AgentSession {
       }
     }
     if (event.toolName === "hub") {
-      for (const item of mapOmpHubDeliveredMessages(extractTextFromToolResult(result) ?? "")) {
+      for (const item of mapOmpHubDeliveredMessages(
+        extractTextFromToolResult(result) ?? "",
+        readOmpToolResultDetails(result),
+      )) {
         this.emit({ type: "timeline", provider: this.provider, turnId, item });
       }
     }
@@ -2059,7 +2062,7 @@ export class OmpAgentSession implements AgentSession {
         const text = getUserMessageText(event.message.content);
         if (text) {
           const item =
-            mapOmpIrcEnvelopeToTimelineItem(text) ??
+            mapOmpIrcEnvelopeToTimelineItem(text, event.message) ??
             mapOmpAdvisorMessageToToolCall(event.message, text) ??
             mapOmpSystemNoticeToToolCall(text);
           this.emit({
@@ -2089,7 +2092,7 @@ export class OmpAgentSession implements AgentSession {
     if (messageId && this.emittedUserMessageIds.has(messageId)) {
       return;
     }
-    const ircMessage = mapOmpIrcEnvelopeToTimelineItem(text);
+    const ircMessage = mapOmpIrcEnvelopeToTimelineItem(text, event.message);
     if (ircMessage) {
       if (messageId) {
         this.emittedUserMessageIds.add(messageId);
@@ -2170,7 +2173,11 @@ export class OmpAgentSession implements AgentSession {
       callId: toolCallId,
       name: resolveToolCallName(toolCall, result),
       detail,
-      ...buildOmpToolMetadata(toolCall, extractTextFromToolResult(result) ?? undefined),
+      ...buildOmpToolMetadata(
+        toolCall,
+        extractTextFromToolResult(result) ?? undefined,
+        readOmpToolResultDetails(result),
+      ),
     };
     const item =
       status === "failed" ? { ...baseItem, status, error } : { ...baseItem, status, error: null };

@@ -1,7 +1,7 @@
 import type { AgentStreamEvent, AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js";
 import type { OmpAgentMessage, OmpImageContent, OmpTextContent } from "./rpc-types.js";
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
-import { buildOmpToolMetadata } from "./hub-tool.js";
+import { buildOmpToolMetadata } from "./tool-metadata.js";
 import { mapOmpHubDeliveredMessages } from "./irc-message.js";
 import {
   extractTextFromToolResult,
@@ -213,7 +213,9 @@ export class OmpHistoryMapper {
     // A `hub` wait/inbox result carries the messages this agent received, so surface them as
     // IRC cards alongside the tool row instead of burying them in collapsed tool output.
     const delivered =
-      message.toolName === "hub" ? mapOmpHubDeliveredMessages(resultText ?? "") : [];
+      message.toolName === "hub"
+        ? mapOmpHubDeliveredMessages(resultText ?? "", message.details)
+        : [];
     const deliveredEvents = delivered.map((item) => ({
       type: "timeline" as const,
       provider: this.provider,
@@ -236,6 +238,7 @@ export class OmpHistoryMapper {
           ...buildOmpToolMetadata(
             { toolName: message.toolName, args: tracked.args },
             resultText ?? undefined,
+            message.details,
           ),
         }),
       },

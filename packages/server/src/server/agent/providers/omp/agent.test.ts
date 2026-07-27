@@ -411,6 +411,30 @@ describe("OMP agent client and session", () => {
     expect(omp.timeline().some((item) => item.type === "assistant_message")).toBe(false);
   });
 
+  test("maps typed live parent steering without the legacy prose label", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    omp.runtime().emit({
+      type: "message_end",
+      message: {
+        role: "user",
+        content: "Continue with the requested implementation.",
+        steering: true,
+        attribution: "agent",
+      },
+    });
+
+    expect(omp.timeline()).toEqual([
+      {
+        type: "irc_message",
+        sender: "Parent agent",
+        body: "Continue with the requested implementation.",
+        deliveryState: "delivered",
+      },
+    ]);
+  });
+
   test("does not complete a queued model turn from OMP's local-only hint", async () => {
     const omp = new OmpHarness();
     await omp.start();

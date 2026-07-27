@@ -194,6 +194,42 @@ describe("shared tool-call display mapping", () => {
       }),
     ).toEqual({ displayName: "Agent coordination", summary: "teleport" });
   });
+  it("names the single job a wait reports", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: {
+          hubOperation: "wait",
+          hubJobs: [{ id: "SteeringServer", status: "running", label: "SteeringServer" }],
+        },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({
+      displayName: "Waited for agent activity",
+      summary: "SteeringServer — running",
+    });
+  });
+
+  it("counts jobs by status when several are reported", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: {
+          hubOperation: "jobs",
+          hubJobs: [
+            { id: "A", status: "running" },
+            { id: "B", status: "running" },
+            { id: "C", status: "completed" },
+          ],
+        },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Checked agent jobs", summary: "2 running, 1 completed" });
+  });
 
   it("uses sub-agent detail for task label and description", () => {
     const display = buildToolCallDisplayModel({
@@ -345,6 +381,27 @@ describe("shared tool-call display mapping", () => {
 
     expect(display).toEqual({
       displayName: "Plan",
+    });
+  });
+  it("uses eval cell title and language metadata instead of the shell command", () => {
+    const display = buildToolCallDisplayModel({
+      name: "eval",
+      status: "completed",
+      error: null,
+      metadata: {
+        evalLanguage: "python",
+        evalTitle: "Loading report",
+      },
+      detail: {
+        type: "shell",
+        command: "print(report.total)",
+        output: "37173",
+      },
+    });
+
+    expect(display).toEqual({
+      displayName: "Loading report",
+      summary: "python",
     });
   });
 });

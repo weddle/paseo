@@ -91,6 +91,20 @@ describe("OMP IRC envelope mapper", () => {
     });
   });
 
+  test("maps typed parent steering without relying on the prose label", () => {
+    expect(
+      mapOmpIrcEnvelopeToTimelineItem("Continue with the requested implementation.", {
+        steering: true,
+        attribution: "agent",
+      }),
+    ).toEqual({
+      type: "irc_message",
+      sender: "Parent agent",
+      body: "Continue with the requested implementation.",
+      deliveryState: "delivered",
+    });
+  });
+
   test("leaves ordinary prose that merely mentions a parent agent alone", () => {
     expect(
       mapOmpIrcEnvelopeToTimelineItem("Please summarize what the parent agent `Main` asked for."),
@@ -117,6 +131,78 @@ describe("OMP IRC envelope mapper", () => {
         ["Something entirely new.", "", "Parent IRC message:", "", "Carry on."].join("\n"),
       ),
     ).toMatchObject({ sender: "Parent agent", body: "Carry on." });
+  });
+});
+
+// `details` payloads below are verbatim structured `hub` results captured from a live OMP session.
+describe("OMP hub delivered-message mapper, from structured details", () => {
+  test("maps a waited-for reply from the record rather than the rendered line", () => {
+    expect(
+      mapOmpHubDeliveredMessages("[153f4e8c7035685e] SteeringComposer: rendered form", {
+        op: "wait",
+        from: "Main",
+        waited: {
+          from: "SteeringComposer",
+          to: "Main",
+          body: "Are you handling client API integration?",
+          id: "153f4e8c7035685e",
+          ts: 1785096102336,
+        },
+      }),
+    ).toEqual([
+      {
+        type: "irc_message",
+        sender: "SteeringComposer",
+        recipient: "Main",
+        body: "Are you handling client API integration?",
+        deliveryState: "delivered",
+      },
+    ]);
+  });
+
+  test("carries the reply target when the record has one", () => {
+    expect(
+      mapOmpHubDeliveredMessages("", {
+        op: "wait",
+        waited: {
+          from: "IrcPong",
+          to: "Main",
+          replyTo: "15403b1659347de6",
+          body: "Acknowledged.",
+          id: "15403b188a347de7",
+        },
+      })[0],
+    ).toMatchObject({ sender: "IrcPong", replyTo: "15403b1659347de6" });
+  });
+
+  test("maps every message an inbox result carries", () => {
+    expect(
+      mapOmpHubDeliveredMessages("", {
+        op: "inbox",
+        from: "Main",
+        inbox: [
+          { from: "IrcPong", to: "Main", body: "first", id: "a" },
+          { from: "IrcPing", to: "Main", body: "second", id: "b" },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({ sender: "IrcPong", body: "first" }),
+      expect.objectContaining({ sender: "IrcPing", body: "second" }),
+    ]);
+  });
+
+  test.each([
+    ["a wait that timed out", { op: "wait", from: "Main", waited: null }],
+    ["an empty inbox", { op: "inbox", from: "Main", inbox: [] }],
+    ["a job snapshot", { op: "wait", jobs: [{ id: "Probe", status: "running" }] }],
+  ])("yields nothing for %s, without falling back to the text", (_label, details) => {
+    expect(mapOmpHubDeliveredMessages("[abc123] Ghost: should not be read", details)).toEqual([]);
+  });
+
+  test("falls back to the rendered text when the result carries no details", () => {
+    expect(
+      mapOmpHubDeliveredMessages("[15403b0f67347de3] IrcPong: README title: Context", undefined),
+    ).toEqual([expect.objectContaining({ sender: "IrcPong", body: "README title: Context" })]);
   });
 });
 

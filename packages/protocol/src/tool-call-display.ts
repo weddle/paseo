@@ -227,13 +227,60 @@ function hubDeliverySummary(deliveries: HubDelivery[]): string | undefined {
   return deliveries.length === 1 ? "Delivered" : `Delivered to ${deliveries.length} agents`;
 }
 
+// `jobs`, `wait`, and `cancel` report a job table. The row states what it found, because the
+// rendered result is a prose block that collapses out of view.
+interface HubJob {
+  id: string;
+  status: string;
+  label?: string;
+}
+
+function readHubJobs(metadata: unknown): HubJob[] {
+  const raw = isRecord(metadata) ? metadata.hubJobs : undefined;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const jobs: HubJob[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const id = readString(entry.id);
+    const status = readString(entry.status);
+    if (!id || !status) {
+      continue;
+    }
+    const label = readString(entry.label);
+    jobs.push({ id, status, ...(label ? { label } : {}) });
+  }
+  return jobs;
+}
+
+function hubJobSummary(jobs: HubJob[]): string | undefined {
+  const only = jobs.length === 1 ? jobs[0] : undefined;
+  if (only) {
+    return `${only.label ?? only.id} — ${only.status}`;
+  }
+  if (jobs.length === 0) {
+    return undefined;
+  }
+  const counts = new Map<string, number>();
+  for (const job of jobs) {
+    counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
+  }
+  return Array.from(counts, ([status, count]) => `${count} ${status}`).join(", ");
+}
+
 function hubDisplay(input: ToolCallDisplayInput): DetailDisplay {
   const metadata = isRecord(input.metadata) ? input.metadata : {};
   const operation = readString(metadata.hubOperation);
   const target = readString(metadata.hubTarget);
   const isActive = input.status === "running";
   const labels = operation ? HUB_OPERATION_LABELS[operation] : undefined;
-  const delivery = hubDeliverySummary(readHubDeliveries(input.metadata));
+  // Deliveries and jobs never co-occur: an operation either addresses agents or reports jobs.
+  const summary =
+    hubDeliverySummary(readHubDeliveries(input.metadata)) ??
+    hubJobSummary(readHubJobs(input.metadata));
 
   if (!labels) {
     return { displayName: "Agent coordination", ...(operation ? { summary: operation } : {}) };
@@ -242,7 +289,7 @@ function hubDisplay(input: ToolCallDisplayInput): DetailDisplay {
   if (operation === "send" && target) {
     return {
       displayName: isActive ? `Sending message to ${target}` : `Sent message to ${target}`,
-      ...(delivery ? { summary: delivery } : {}),
+      ...(summary ? { summary } : {}),
     };
   }
   const targetedVerb = isActive ? labels.activeWithTarget : labels.settledWithTarget;
@@ -252,7 +299,20 @@ function hubDisplay(input: ToolCallDisplayInput): DetailDisplay {
   const phrase = isActive ? labels.active : labels.settled;
   return {
     displayName: target ? `${phrase} ${target}` : phrase,
-    ...(delivery ? { summary: delivery } : {}),
+    ...(summary ? { summary } : {}),
+  };
+}
+
+function evalDisplay(input: ToolCallDisplayInput): DetailDisplay {
+  const metadata = isRecord(input.metadata) ? input.metadata : {};
+  const title = readString(metadata.evalTitle);
+  const language = readString(metadata.evalLanguage);
+  if (!title && !language) {
+    return {};
+  }
+  return {
+    displayName: title ?? "Evaluate",
+    ...(language ? { summary: language } : {}),
   };
 }
 
@@ -274,6 +334,9 @@ function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay 
       displayName: "Terminal",
       summary: input.detail.type === "plain_text" ? readString(input.detail.label) : undefined,
     };
+  }
+  if (lowerName === "eval") {
+    return evalDisplay(input);
   }
   if (lowerName === "hub") {
     return hubDisplay(input);
