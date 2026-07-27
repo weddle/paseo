@@ -38,7 +38,7 @@ describe("shared tool-call display mapping", () => {
     });
   });
 
-  it("names the recipient and reports delivery for a hub send", () => {
+  it("names the recipient and reports delivery for a settled hub send", () => {
     const display = buildToolCallDisplayModel({
       name: "hub",
       status: "completed",
@@ -52,9 +52,43 @@ describe("shared tool-call display mapping", () => {
     });
 
     expect(display).toEqual({
-      displayName: "Send message to IrcPong",
+      displayName: "Sent message to IrcPong",
       summary: "Delivered",
     });
+  });
+
+  it("reads as in-progress while the call is still running", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "running",
+        error: null,
+        metadata: { hubOperation: "wait" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Waiting for agent activity" });
+
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "running",
+        error: null,
+        metadata: { hubOperation: "send", hubTarget: "IrcPong" },
+        detail: { type: "unknown", input: "Please reply now.", output: null },
+      }),
+    ).toMatchObject({ displayName: "Sending message to IrcPong" });
+  });
+
+  it("keeps a canceled call in the settled tense", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "canceled",
+        error: null,
+        metadata: { hubOperation: "wait" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Waited for agent activity" });
   });
 
   it("surfaces the failure reason when a hub send is not delivered", () => {
@@ -88,7 +122,7 @@ describe("shared tool-call display mapping", () => {
         },
         detail: { type: "unknown", input: "Status?", output: null },
       }),
-    ).toMatchObject({ displayName: "Send agent message", summary: "Delivered to 2 agents" });
+    ).toMatchObject({ displayName: "Sent agent message", summary: "Delivered to 2 agents" });
   });
 
   it("labels a non-send operation without the recipient phrasing", () => {
@@ -100,7 +134,7 @@ describe("shared tool-call display mapping", () => {
         metadata: { hubOperation: "wait" },
         detail: { type: "unknown", input: null, output: null },
       }),
-    ).toEqual({ displayName: "Wait for agent activity" });
+    ).toEqual({ displayName: "Waited for agent activity" });
   });
 
   it("falls back to a neutral label for an operation it does not know", () => {

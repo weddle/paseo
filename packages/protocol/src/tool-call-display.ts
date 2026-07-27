@@ -127,21 +127,22 @@ function buildCanonicalDetailDisplay(input: ToolCallDisplayInput): DetailDisplay
   }
 }
 
-// Operation labels for OMP's `hub` agent-coordination tool. An unrecognized operation falls back
-// to a neutral label rather than inventing one, so new operations degrade instead of misreporting.
-const HUB_OPERATION_LABELS: Record<string, string> = {
-  send: "Send agent message",
-  wait: "Wait for agent activity",
-  inbox: "Read agent inbox",
-  list: "List agents",
-  jobs: "Check agent jobs",
-  cancel: "Cancel agent work",
-  start: "Start process",
-  stop: "Stop process",
-  restart: "Restart process",
-  logs: "Read process logs",
-  ps: "List processes",
-  describe: "Describe process",
+// Operation labels for OMP's `hub` agent-coordination tool. A row is a live indicator while the
+// call runs and a record of what happened once it settles, so each label carries both tenses.
+// An unrecognized operation falls back to a neutral label rather than inventing one.
+const HUB_OPERATION_LABELS: Record<string, { active: string; settled: string }> = {
+  send: { active: "Sending agent message", settled: "Sent agent message" },
+  wait: { active: "Waiting for agent activity", settled: "Waited for agent activity" },
+  inbox: { active: "Reading agent inbox", settled: "Read agent inbox" },
+  list: { active: "Listing agents", settled: "Listed agents" },
+  jobs: { active: "Checking agent jobs", settled: "Checked agent jobs" },
+  cancel: { active: "Canceling agent work", settled: "Canceled agent work" },
+  start: { active: "Starting process", settled: "Started process" },
+  stop: { active: "Stopping process", settled: "Stopped process" },
+  restart: { active: "Restarting process", settled: "Restarted process" },
+  logs: { active: "Reading process logs", settled: "Read process logs" },
+  ps: { active: "Listing processes", settled: "Listed processes" },
+  describe: { active: "Describing process", settled: "Described process" },
 };
 // A `hub` send names each recipient and how it landed, so the row can state the outcome instead
 // of leaving it inside collapsed output.
@@ -188,18 +189,33 @@ function hubDeliverySummary(deliveries: HubDelivery[]): string | undefined {
   return deliveries.length === 1 ? "Delivered" : `Delivered to ${deliveries.length} agents`;
 }
 
+function hubDisplayName(
+  operation: string | undefined,
+  target: string | undefined,
+  isActive: boolean,
+): string {
+  const labels = operation ? HUB_OPERATION_LABELS[operation] : undefined;
+  if (!labels) {
+    return "Agent coordination";
+  }
+  // A send reads better naming its recipient inline than appending it to the generic label.
+  if (operation === "send" && target) {
+    return isActive ? `Sending message to ${target}` : `Sent message to ${target}`;
+  }
+  const label = isActive ? labels.active : labels.settled;
+  return target ? `${label} ${target}` : label;
+}
+
 function hubDisplay(input: ToolCallDisplayInput): DetailDisplay {
-  const operation = isRecord(input.metadata) ? readString(input.metadata.hubOperation) : undefined;
-  const target = isRecord(input.metadata) ? readString(input.metadata.hubTarget) : undefined;
-  const label = operation ? HUB_OPERATION_LABELS[operation] : undefined;
-  const displayName =
-    label && target && operation === "send"
-      ? `Send message to ${target}`
-      : (label ?? "Agent coordination");
+  const metadata = isRecord(input.metadata) ? input.metadata : {};
+  const operation = readString(metadata.hubOperation);
+  const target = readString(metadata.hubTarget);
+  const isKnownOperation = !!operation && operation in HUB_OPERATION_LABELS;
   const summary =
-    hubDeliverySummary(readHubDeliveries(input.metadata)) ?? (label ? undefined : operation);
+    hubDeliverySummary(readHubDeliveries(input.metadata)) ??
+    (isKnownOperation ? undefined : operation);
   return {
-    displayName: target && operation !== "send" && label ? `${label} ${target}` : displayName,
+    displayName: hubDisplayName(operation, target, input.status === "running"),
     ...(summary ? { summary } : {}),
   };
 }
