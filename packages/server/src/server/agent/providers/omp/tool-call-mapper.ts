@@ -1,4 +1,5 @@
 import type { ToolCallDetail } from "../../agent-sdk-types.js";
+import { buildOmpHubToolDetail } from "./hub-tool.js";
 import {
   extractTextFromToolResult,
   mapToolDetail as mapOmpCoreToolDetail,
@@ -16,6 +17,12 @@ export function mapOmpToolDetail(
 ): ToolCallDetail | null {
   if (toolCall.toolName === "todo") {
     return null;
+  }
+  if (toolCall.toolName === "hub") {
+    return (
+      buildOmpHubToolDetail(toolCall.args, extractTextFromToolResult(result) ?? undefined) ??
+      mapOmpCoreToolDetail(toolCall, result)
+    );
   }
   if (toolCall.toolName === "task") {
     const detail = mapOmpTaskDetail(toolCall.args, result);

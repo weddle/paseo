@@ -69,6 +69,7 @@ import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagen
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
 import { getUserMessageText } from "./message-history.js";
 import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
+import { buildOmpToolMetadata } from "./hub-tool.js";
 import { mapOmpHubDeliveredMessages, mapOmpIrcEnvelopeToTimelineItem } from "./irc-message.js";
 import { materializeProviderImage } from "../provider-image-output.js";
 import { OmpCliRuntime } from "./cli-runtime.js";
@@ -2169,6 +2170,7 @@ export class OmpAgentSession implements AgentSession {
       callId: toolCallId,
       name: resolveToolCallName(toolCall, result),
       detail,
+      ...buildOmpToolMetadata(toolCall, extractTextFromToolResult(result) ?? undefined),
     };
     const item =
       status === "failed" ? { ...baseItem, status, error } : { ...baseItem, status, error: null };

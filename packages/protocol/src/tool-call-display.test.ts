@@ -38,22 +38,81 @@ describe("shared tool-call display mapping", () => {
     });
   });
 
-  it("labels Hub tool calls as agent coordination", () => {
+  it("names the recipient and reports delivery for a hub send", () => {
     const display = buildToolCallDisplayModel({
       name: "hub",
       status: "completed",
       error: null,
-      detail: {
-        type: "unknown",
-        input: { op: "send" },
-        output: null,
+      metadata: {
+        hubOperation: "send",
+        hubTarget: "IrcPong",
+        hubDeliveries: [{ agent: "IrcPong", state: "injected" }],
       },
+      detail: { type: "unknown", input: "Please reply now.", output: null },
     });
 
     expect(display).toEqual({
-      displayName: "Agent coordination",
-      summary: "Send agent message",
+      displayName: "Send message to IrcPong",
+      summary: "Delivered",
     });
+  });
+
+  it("surfaces the failure reason when a hub send is not delivered", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: {
+          hubOperation: "send",
+          hubTarget: "Ghost",
+          hubDeliveries: [{ agent: "Ghost", state: "failed", reason: 'Unknown agent "Ghost"' }],
+        },
+        detail: { type: "unknown", input: "Anyone there?", output: null },
+      }),
+    ).toMatchObject({ summary: 'Failed — Unknown agent "Ghost"' });
+  });
+
+  it("counts recipients on a broadcast", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: {
+          hubOperation: "send",
+          hubDeliveries: [
+            { agent: "One", state: "injected" },
+            { agent: "Two", state: "revived" },
+          ],
+        },
+        detail: { type: "unknown", input: "Status?", output: null },
+      }),
+    ).toMatchObject({ displayName: "Send agent message", summary: "Delivered to 2 agents" });
+  });
+
+  it("labels a non-send operation without the recipient phrasing", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: { hubOperation: "wait" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Wait for agent activity" });
+  });
+
+  it("falls back to a neutral label for an operation it does not know", () => {
+    expect(
+      buildToolCallDisplayModel({
+        name: "hub",
+        status: "completed",
+        error: null,
+        metadata: { hubOperation: "teleport" },
+        detail: { type: "unknown", input: null, output: null },
+      }),
+    ).toEqual({ displayName: "Agent coordination", summary: "teleport" });
   });
 
   it("uses sub-agent detail for task label and description", () => {

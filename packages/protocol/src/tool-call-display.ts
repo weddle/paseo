@@ -127,24 +127,81 @@ function buildCanonicalDetailDisplay(input: ToolCallDisplayInput): DetailDisplay
   }
 }
 
-function hubOperationSummary(input: ToolCallDisplayInput): string | undefined {
-  if (input.detail.type !== "unknown" || !isRecord(input.detail.input)) {
+// Operation labels for OMP's `hub` agent-coordination tool. An unrecognized operation falls back
+// to a neutral label rather than inventing one, so new operations degrade instead of misreporting.
+const HUB_OPERATION_LABELS: Record<string, string> = {
+  send: "Send agent message",
+  wait: "Wait for agent activity",
+  inbox: "Read agent inbox",
+  list: "List agents",
+  jobs: "Check agent jobs",
+  cancel: "Cancel agent work",
+  start: "Start process",
+  stop: "Stop process",
+  restart: "Restart process",
+  logs: "Read process logs",
+  ps: "List processes",
+  describe: "Describe process",
+};
+// A `hub` send names each recipient and how it landed, so the row can state the outcome instead
+// of leaving it inside collapsed output.
+const HUB_FAILED_DELIVERY_STATE = "failed";
+
+interface HubDelivery {
+  agent: string;
+  state: string;
+  reason?: string;
+}
+
+function readHubDeliveries(metadata: unknown): HubDelivery[] {
+  const raw = isRecord(metadata) ? metadata.hubDeliveries : undefined;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const deliveries: HubDelivery[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const agent = readString(entry.agent);
+    const state = readString(entry.state);
+    if (agent && state) {
+      deliveries.push({
+        agent,
+        state,
+        ...(readString(entry.reason) ? { reason: String(entry.reason) } : {}),
+      });
+    }
+  }
+  return deliveries;
+}
+
+function hubDeliverySummary(deliveries: HubDelivery[]): string | undefined {
+  if (deliveries.length === 0) {
     return undefined;
   }
-  switch (input.detail.input.op) {
-    case "send":
-      return "Send agent message";
-    case "wait":
-      return "Wait for agent activity";
-    case "list":
-      return "List agents";
-    case "jobs":
-      return "Check agent jobs";
-    case "cancel":
-      return "Cancel agent work";
-    default:
-      return undefined;
+  const failed = deliveries.filter((delivery) => delivery.state === HUB_FAILED_DELIVERY_STATE);
+  if (failed.length > 0) {
+    const reason = failed[0]?.reason;
+    return reason ? `Failed — ${reason}` : "Failed";
   }
+  return deliveries.length === 1 ? "Delivered" : `Delivered to ${deliveries.length} agents`;
+}
+
+function hubDisplay(input: ToolCallDisplayInput): DetailDisplay {
+  const operation = isRecord(input.metadata) ? readString(input.metadata.hubOperation) : undefined;
+  const target = isRecord(input.metadata) ? readString(input.metadata.hubTarget) : undefined;
+  const label = operation ? HUB_OPERATION_LABELS[operation] : undefined;
+  const displayName =
+    label && target && operation === "send"
+      ? `Send message to ${target}`
+      : (label ?? "Agent coordination");
+  const summary =
+    hubDeliverySummary(readHubDeliveries(input.metadata)) ?? (label ? undefined : operation);
+  return {
+    displayName: target && operation !== "send" && label ? `${label} ${target}` : displayName,
+    ...(summary ? { summary } : {}),
+  };
 }
 
 function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay {
@@ -167,10 +224,7 @@ function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay 
     };
   }
   if (lowerName === "hub") {
-    return {
-      displayName: "Agent coordination",
-      summary: hubOperationSummary(input),
-    };
+    return hubDisplay(input);
   }
   return {};
 }

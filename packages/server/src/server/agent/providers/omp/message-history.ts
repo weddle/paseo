@@ -1,6 +1,7 @@
 import type { AgentStreamEvent, AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js";
 import type { OmpAgentMessage, OmpImageContent, OmpTextContent } from "./rpc-types.js";
 import { shouldDisplayOmpCustomMessage } from "./custom-message.js";
+import { buildOmpToolMetadata } from "./hub-tool.js";
 import { mapOmpHubDeliveredMessages } from "./irc-message.js";
 import {
   extractTextFromToolResult,
@@ -232,6 +233,10 @@ export class OmpHistoryMapper {
           isError: Boolean(message.isError),
           detail,
           errorText: resultText ?? "Tool call failed",
+          ...buildOmpToolMetadata(
+            { toolName: message.toolName, args: tracked.args },
+            resultText ?? undefined,
+          ),
         }),
       },
       ...deliveredEvents,
@@ -295,23 +300,17 @@ function toToolResultTimelineItem(input: {
   isError: boolean;
   detail: ToolCallDetail;
   errorText: string;
+  metadata?: Record<string, unknown>;
 }): AgentTimelineItem {
-  if (input.isError) {
-    return {
-      type: "tool_call",
-      callId: input.callId,
-      name: input.name,
-      status: "failed",
-      detail: input.detail,
-      error: input.errorText,
-    };
-  }
-  return {
-    type: "tool_call",
+  const base = {
+    type: "tool_call" as const,
     callId: input.callId,
     name: input.name,
-    status: "completed",
     detail: input.detail,
-    error: null,
+    ...(input.metadata ? { metadata: input.metadata } : {}),
   };
+  if (input.isError) {
+    return { ...base, status: "failed", error: input.errorText };
+  }
+  return { ...base, status: "completed", error: null };
 }
